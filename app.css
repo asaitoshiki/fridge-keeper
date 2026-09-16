@@ -195,26 +195,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .filters::-webkit-scrollbar { display: none; }
 
-.chip {
+.chip-filter {
   flex: 0 0 auto;
   border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   border-radius: 999px;
-  padding: 5px 13px;
+  padding: 7px 14px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
   transition: background .12s, color .12s, border-color .12s;
 }
-.chip:hover { background: var(--surface-2); }
-.chip[aria-pressed="true"] {
+.chip-filter:hover { background: var(--surface-2); }
+.chip-filter[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
 }
-.chip em {
+.chip-filter em {
   font-family: var(--mono);
   font-style: normal;
   font-size: 11px;
@@ -453,3 +453,268 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 @media (max-width: 400px) {
   .field-pair { grid-template-columns: 1fr; }
 }
+
+/* ===========================================================================
+   タブと冷蔵庫の図
+   =========================================================================== */
+
+.tabbar { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+
+.tabs {
+  display: inline-flex;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 40px;
+}
+.tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(18,32,42,.14); }
+
+.tab-action {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 8px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.tab-action[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+.notice {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 13px;
+}
+
+.stage { display: flex; flex-direction: column; gap: 16px; }
+
+/* --- 筐体（冷蔵庫・棚） ------------------------------------------------- */
+
+.unit {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 10px 10px 12px;
+  box-shadow: var(--shadow);
+}
+.unit-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 9px; min-height: 30px; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--ink-2); letter-spacing: .04em; }
+.unit-body { display: flex; flex-direction: column; gap: 7px; }
+
+/* 取っ手。冷蔵庫らしさはこの一本だけで足りる */
+.unit-handle {
+  position: absolute;
+  right: 3px; top: 46px; bottom: 18px;
+  width: 4px;
+  border-radius: 4px;
+  background: var(--line-strong);
+  opacity: .8;
+}
+
+.unit-name-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* --- 段・引き出し ------------------------------------------------------- */
+
+.comp {
+  --size: 2;
+  min-height: calc(40px + var(--size) * 17px);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  padding: 7px 9px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color .12s, background .12s;
+}
+.comp[data-kind="FREEZER"] {
+  background: repeating-linear-gradient(135deg, var(--ground), var(--ground) 7px, var(--surface-2) 7px, var(--surface-2) 14px);
+}
+/* 野菜室は引き出し。前板のつまみを一本入れて他の段と区別する */
+.comp[data-kind="VEGETABLE_DRAWER"] { border-style: dashed; border-color: var(--line-strong); }
+.comp[data-kind="ROOM_TEMP"] { border-left: 3px solid var(--line-strong); }
+
+.comp-head { display: flex; align-items: center; gap: 7px; }
+.comp-name { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.comp-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 1.7;
+}
+.comp-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.comp-items { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; flex: 1; }
+
+/* ドラッグ中の受け皿。輪郭を強めて、どこに落ちるかを迷わせない */
+[data-drop].is-over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* --- 食材のチップ ------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--calm-bar);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 7px 9px 7px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: grab;
+  min-height: 36px;
+  /* ドラッグ中に画面がスクロールしてしまわないようにする（タッチ端末で必須） */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.chip[data-level="EXPIRED"], .chip[data-level="CRITICAL"] { border-left-color: var(--critical-bar); }
+.chip[data-level="WARN"] { border-left-color: var(--warn-bar); }
+.chip[data-level="CAUTION"] { border-left-color: var(--caution-bar); }
+.chip[data-estimated="true"] { border-left-style: dashed; }
+/* 推定期限であることは必ず明示する（仕様書8.2）。枠線の違いだけに頼らない */
+.chip-est {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip[data-useby="true"] { box-shadow: inset 0 0 0 1px var(--critical-bg); }
+
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-name i { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: 4px; }
+.chip-days {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chip[data-level="EXPIRED"] .chip-days, .chip[data-level="CRITICAL"] .chip-days { color: var(--critical); }
+.chip[data-level="WARN"] .chip-days { color: var(--warn); }
+.chip[data-level="CAUTION"] .chip-days { color: var(--caution); }
+
+.chip-lifted { opacity: .28; }
+.chip-ghost {
+  position: fixed;
+  left: 0; top: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: .96;
+  transform-origin: center;
+  box-shadow: 0 12px 28px -8px rgba(10, 24, 32, .5);
+  border-color: var(--accent);
+  cursor: grabbing;
+}
+body.is-dragging { cursor: grabbing; }
+body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
+
+/* --- 買ってきたもの置き場 ----------------------------------------------- */
+
+.tray {
+  border: 2px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 92px;
+}
+.tray-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.tray-head > span:first-child { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.tray-hint { font-size: 11.5px; color: var(--ink-3); }
+
+/* --- 配置の編集 --------------------------------------------------------- */
+
+.comp-edit { display: flex; flex-direction: column; gap: 7px; }
+.comp-edit input, .comp-edit select {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 9px;
+  font-size: 14px;
+  width: 100%;
+}
+.comp-edit-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+.mini {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.mini:hover:not(:disabled) { background: var(--surface-2); }
+.mini:disabled { opacity: .35; cursor: default; }
+.mini.danger { color: var(--expired); border-color: var(--expired); }
+.mini-label { font-family: var(--mono); font-size: 11px; color: var(--ink-3); padding: 0 3px; }
+
+.comp-add, .unit-add {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: 10px;
+  padding: 11px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 44px;
+}
+.comp-add:hover, .unit-add:hover { background: var(--surface-2); }
+.unit-add { border-width: 2px; border-radius: 14px; }

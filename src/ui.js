@@ -9,7 +9,9 @@
   const ALERT_THRESHOLD_DAYS = 3;
 
   let state = loadState();
-  let locationFilter = 'ALL';
+  let view = 'fridge';
+  let editingLayout = false;
+  let kindFilter = 'ALL';
   let editingId = null;
 
   const root = document.getElementById('app');
@@ -22,41 +24,39 @@
 
   function render() {
     const today = todayIso();
-    const visible = state.items.filter(
-      (item) => locationFilter === 'ALL' || item.storageLocation === locationFilter
-    );
-    const sorted = sortByExpiry(visible, today);
-
     root.innerHTML = [
       masthead(),
       summary(today),
-      filters(),
-      sheet(sorted, today),
+      tabs(),
+      view === 'fridge' ? fridgePane(today) : listPane(today),
       disclaimer(),
     ].join('');
-
     root.insertAdjacentHTML('beforeend', fab());
-    bind();
+    bind(today);
+  }
+
+  function kindFor(item) {
+    return kindOf(state.layout, item);
   }
 
   function masthead() {
-    const total = state.items.length;
     return `
       <header class="masthead">
         <h1 class="wordmark">冷蔵庫<span>キーパー</span></h1>
-        <div class="tally">${total} ITEMS${state.sampleLoaded ? ' · SAMPLE' : ''}</div>
+        <div class="tally">${state.items.length} ITEMS${state.sampleLoaded ? ' · SAMPLE' : ''}</div>
       </header>`;
   }
 
   /**
    * 開いた瞬間に全体の状況が分かるようにする。
    * Web版では定時通知を出せないため、ここが唯一の「気づかせる」経路になる（仕様書8.3）。
+   * 冷蔵庫の図を見ているときも隠れないよう、タブより上に常に置く。
    */
   function summary(today) {
     if (state.items.length === 0) return '';
 
     const urgent = state.items
-      .map((item) => ({ item, u: urgencyOf(item, today) }))
+      .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
       .filter((x) => x.u.days !== null && x.u.days <= ALERT_THRESHOLD_DAYS)
       .sort((a, b) => a.u.days - b.u.days);
 
@@ -82,19 +82,53 @@
       </section>`;
   }
 
+  function tabs() {
+    const tab = (key, label) =>
+      `<button class="tab" type="button" data-view="${key}" aria-pressed="${view === key}">${label}</button>`;
+    return `
+      <div class="tabbar">
+        <nav class="tabs" aria-label="表示の切り替え">
+          ${tab('fridge', '冷蔵庫')}${tab('list', '期限順')}
+        </nav>
+        ${view === 'fridge'
+          ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
+               ${editingLayout ? '編集を終える' : '配置を編集'}
+             </button>`
+          : ''}
+      </div>`;
+  }
+
+  /* --- 冷蔵庫の図 ------------------------------------------------------- */
+
+  function fridgePane(today) {
+    return `<div id="fridge-pane">${FridgeView.markup(state, {
+      editing: editingLayout,
+      kindFor,
+      today,
+    })}</div>`;
+  }
+
+  /* --- 期限順リスト ----------------------------------------------------- */
+
+  function listPane(today) {
+    const visible = state.items.filter((i) => kindFilter === 'ALL' || kindFor(i) === kindFilter);
+    const sorted = sortByExpiry(visible, kindFor, today);
+    return filters() + sheet(sorted, today);
+  }
+
   function filters() {
     const counts = { ALL: state.items.length };
     Object.keys(STORAGE_LABELS).forEach((key) => {
-      counts[key] = state.items.filter((i) => i.storageLocation === key).length;
+      counts[key] = state.items.filter((i) => kindFor(i) === key).length;
     });
 
     const chip = (key, label) => `
-      <button class="chip" type="button" data-filter="${key}" aria-pressed="${locationFilter === key}">
+      <button class="chip-filter" type="button" data-filter="${key}" aria-pressed="${kindFilter === key}">
         ${label}<em>${counts[key]}</em>
       </button>`;
 
     return `
-      <nav class="filters" aria-label="保管場所で絞り込む">
+      <nav class="filters" aria-label="収納の種類で絞り込む">
         ${chip('ALL', 'すべて')}
         ${Object.entries(STORAGE_LABELS).map(([k, v]) => chip(k, v)).join('')}
       </nav>`;
@@ -105,19 +139,17 @@
       return `<div class="sheet"><div class="empty">${
         state.items.length === 0
           ? '<strong>食材がまだ登録されていません</strong>右下の「食材を追加」から登録してください。'
-          : '<strong>この保管場所には何もありません</strong>ほかのタブを見てください。'
+          : '<strong>ここには何もありません</strong>ほかのタブを見てください。'
       }</div></div>`;
     }
     return `<div class="sheet">${items.map((item) => row(item, today)).join('')}</div>`;
   }
 
   function row(item, today) {
-    const u = urgencyOf(item, today);
-    const useBy = item.expiryType === 'USE_BY';
-
+    const u = urgencyOf(item, kindFor(item), today);
     const badges = [
-      u.estimated ? '<span class="badge badge-estimate">目安</span>' : '',
-      useBy ? '<span class="badge badge-useby">消費期限</span>' : '',
+      u.estimated && u.date ? '<span class="badge badge-estimate">目安</span>' : '',
+      item.expiryType === 'USE_BY' ? '<span class="badge badge-useby">消費期限</span>' : '',
     ].join('');
 
     return `
@@ -126,7 +158,7 @@
         <span class="row-main">
           <span class="row-name">${esc(item.name)}${item.quantity > 1 ? `<span class="qty">×${item.quantity}</span>` : ''}</span>
           <span class="row-meta">
-            ${STORAGE_LABELS[item.storageLocation]}・${CATEGORY_LABELS[item.category]}
+            ${esc(compartmentPath(state.layout, item.compartmentId))}・${CATEGORY_LABELS[item.category]}
             ${badges}
           </span>
         </span>
@@ -136,6 +168,8 @@
         </span>
       </button>`;
   }
+
+  /* --- 共通パーツ ------------------------------------------------------- */
 
   function disclaimer() {
     return `
@@ -150,6 +184,7 @@
   }
 
   function fab() {
+    if (editingLayout) return '';
     return `
       <button class="fab" type="button" id="add-item">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
@@ -159,10 +194,26 @@
 
   /* --- 操作 ------------------------------------------------------------ */
 
-  function bind() {
+  function bind(today) {
+    root.querySelectorAll('[data-view]').forEach((el) => {
+      el.addEventListener('click', () => {
+        view = el.dataset.view;
+        editingLayout = false;
+        render();
+      });
+    });
+
+    const toggle = root.querySelector('#toggle-layout');
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        editingLayout = !editingLayout;
+        render();
+      });
+    }
+
     root.querySelectorAll('[data-filter]').forEach((el) => {
       el.addEventListener('click', () => {
-        locationFilter = el.dataset.filter;
+        kindFilter = el.dataset.filter;
         render();
       });
     });
@@ -171,7 +222,8 @@
       el.addEventListener('click', () => openEditor(el.dataset.id));
     });
 
-    root.querySelector('#add-item').addEventListener('click', () => openEditor(null));
+    const addButton = root.querySelector('#add-item');
+    if (addButton) addButton.addEventListener('click', () => openEditor(null));
 
     const clear = root.querySelector('#clear-sample');
     if (clear) {
@@ -181,11 +233,67 @@
         commit();
       });
     }
+
+    const pane = root.querySelector('#fridge-pane');
+    if (pane) {
+      FridgeView.bind(pane, state, {
+        editing: editingLayout,
+        kindFor,
+        today,
+        onMove: moveItem,
+        onOpenItem: openEditor,
+        onRedraw: render,
+        onLayout: applyLayout,
+        onDeleteCompartment: deleteCompartment,
+        onDeleteUnit: deleteUnit,
+      });
+    }
   }
 
   function commit() {
     saveState(state);
     render();
+  }
+
+  /** 収納を移すと、期限を入力していない食材の目安日数も変わる */
+  function moveItem(itemId, compartmentId) {
+    state.items.find((i) => i.id === itemId).compartmentId = compartmentId;
+    commit();
+  }
+
+  /** keepFocus: 名前の入力中に再描画でフォーカスを奪わないための逃げ道 */
+  function applyLayout(mutate, keepFocus) {
+    mutate(state.layout);
+    saveState(state);
+    if (!keepFocus) render();
+  }
+
+  function deleteCompartment(compartmentId) {
+    const inside = state.items.filter((i) => i.compartmentId === compartmentId).length;
+    const name = compartmentPath(state.layout, compartmentId);
+    if (inside > 0 && !confirm(`${name}を削除します。中の${inside}件は「買ってきたもの」に戻ります。`)) return;
+
+    releaseItemsIn([compartmentId]);
+    const unit = findUnitOf(state.layout, compartmentId);
+    unit.compartments = unit.compartments.filter((c) => c.id !== compartmentId);
+    commit();
+  }
+
+  function deleteUnit(unitId) {
+    const unit = state.layout.find((u) => u.id === unitId);
+    const ids = unit.compartments.map((c) => c.id);
+    const inside = state.items.filter((i) => ids.includes(i.compartmentId)).length;
+    if (!confirm(`${unit.name}を丸ごと削除します。${inside > 0 ? `中の${inside}件は「買ってきたもの」に戻ります。` : ''}`)) return;
+
+    releaseItemsIn(ids);
+    state.layout = state.layout.filter((u) => u.id !== unitId);
+    commit();
+  }
+
+  function releaseItemsIn(compartmentIds) {
+    state.items.forEach((item) => {
+      if (compartmentIds.includes(item.compartmentId)) item.compartmentId = null;
+    });
   }
 
   /* --- 入力ダイアログ --------------------------------------------------- */
@@ -213,11 +321,14 @@
             </select>
           </div>
           <div class="field">
-            <label for="f-location">保管場所</label>
-            <select id="f-location" name="storageLocation">
-              ${Object.entries(STORAGE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
-            </select>
+            <label for="f-quantity">個数</label>
+            <input id="f-quantity" name="quantity" type="number" min="1" step="1" value="1" inputmode="numeric">
           </div>
+        </div>
+
+        <div class="field">
+          <label for="f-place">入れる場所</label>
+          <select id="f-place" name="compartmentId"></select>
         </div>
 
         <div class="field-pair">
@@ -230,14 +341,9 @@
             </select>
           </div>
           <div class="field">
-            <label for="f-quantity">個数</label>
-            <input id="f-quantity" name="quantity" type="number" min="1" step="1" value="1" inputmode="numeric">
+            <label for="f-date">期限日 <span class="optional">任意</span></label>
+            <input id="f-date" name="expiryDate" type="date">
           </div>
-        </div>
-
-        <div class="field">
-          <label for="f-date">期限日 <span class="optional">— 書いていなければ空のままで</span></label>
-          <input id="f-date" name="expiryDate" type="date">
         </div>
 
         <div class="hint" id="f-hint"></div>
@@ -256,21 +362,32 @@
     el.querySelector('#editor-close').addEventListener('click', () => el.close());
     el.querySelector('#editor-form').addEventListener('submit', onSubmit);
     el.querySelector('#editor-delete').addEventListener('click', onDelete);
-    ['f-category', 'f-location', 'f-date'].forEach((id) => {
+    ['f-category', 'f-place', 'f-date'].forEach((id) => {
       el.querySelector(`#${id}`).addEventListener('change', updateHint);
     });
     return el;
+  }
+
+  /** 収納はユーザーが編集するので、開くたびに選択肢を組み直す */
+  function placeOptions() {
+    const groups = state.layout
+      .map((unit) => `<optgroup label="${esc(unit.name)}">${unit.compartments
+        .map((c) => `<option value="${c.id}">${esc(c.name)}（${STORAGE_LABELS[c.kind]}）</option>`)
+        .join('')}</optgroup>`)
+      .join('');
+    return `<option value="">まだ入れない（買ってきたもの）</option>${groups}`;
   }
 
   function openEditor(id) {
     editingId = id;
     const item = id ? state.items.find((i) => i.id === id) : null;
 
+    dialog.querySelector('#f-place').innerHTML = placeOptions();
     dialog.querySelector('#editor-title').textContent = item ? '食材を編集' : '食材を追加';
     dialog.querySelector('#editor-delete').hidden = !item;
     dialog.querySelector('#f-name').value = item ? item.name : '';
     dialog.querySelector('#f-category').value = item ? item.category : 'VEGETABLE';
-    dialog.querySelector('#f-location').value = item ? item.storageLocation : 'FRIDGE';
+    dialog.querySelector('#f-place').value = item && item.compartmentId ? item.compartmentId : '';
     dialog.querySelector('#f-type').value = item ? item.expiryType : 'BEST_BEFORE';
     dialog.querySelector('#f-quantity').value = item ? item.quantity : 1;
     dialog.querySelector('#f-date').value = item && item.expiryDate ? item.expiryDate : '';
@@ -295,14 +412,17 @@
     }
 
     const category = dialog.querySelector('#f-category').value;
-    const location = dialog.querySelector('#f-location').value;
-    const days = presetDaysFor(category, location);
-    const base = editingId
-      ? state.items.find((i) => i.id === editingId).registeredAt
-      : todayIso();
+    const compartmentId = dialog.querySelector('#f-place').value;
+    const compartment = findCompartment(state.layout, compartmentId);
+    const days = presetDaysFor(category, compartment ? compartment.kind : null);
+    const base = editingId ? state.items.find((i) => i.id === editingId).registeredAt : todayIso();
 
+    if (!compartment) {
+      hint.innerHTML = 'まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。';
+      return;
+    }
     if (days === null) {
-      hint.innerHTML = `${CATEGORY_LABELS[category]}を${STORAGE_LABELS[location]}で保管する場合の目安がないため、<b>期限なし</b>として扱います。`;
+      hint.innerHTML = `${CATEGORY_LABELS[category]}を${STORAGE_LABELS[compartment.kind]}で保管する場合の目安がないため、<b>期限なし</b>として扱います。`;
       return;
     }
     hint.innerHTML = `期限を空にすると、目安の <b>${days}日</b> を使って <b>${formatDate(addDays(base, days))}</b> まで（目安）として表示します。`;
@@ -318,7 +438,7 @@
     const values = {
       name,
       category: f.category.value,
-      storageLocation: f.storageLocation.value,
+      compartmentId: f.compartmentId.value || null,
       expiryType: f.expiryType.value,
       expiryDate: f.expiryDate.value || null,
       quantity: Math.max(1, Number(f.quantity.value) || 1),
@@ -329,12 +449,7 @@
     if (existing) {
       Object.assign(existing, values);
     } else {
-      state.items.push({
-        id: newId(),
-        registeredAt: todayIso(),
-        janCode: null,
-        ...values,
-      });
+      state.items.push({ id: newId('item'), registeredAt: todayIso(), janCode: null, ...values });
     }
 
     dialog.close();

@@ -18,6 +18,10 @@ const CATEGORY_LABELS = {
   OTHER: 'その他',
 };
 
+/**
+ * 収納の「種類」。ユーザーが引き出しを何個作っても、期限の目安はこの4種類で引く。
+ * 見た目（段の数・名前・大きさ）と、日持ちに効く事実とを分けておくための区別。
+ */
 const STORAGE_LABELS = {
   FRIDGE: '冷蔵',
   FREEZER: '冷凍',
@@ -35,7 +39,7 @@ const EXPIRY_TYPE_LABELS = {
 /* --- プリセット期限テーブル -------------------------------------------- */
 
 /**
- * 期限が印字されていない食材の日持ちの目安。カテゴリ × 保管場所で日数を引く。
+ * 期限が印字されていない食材の日持ちの目安。カテゴリ × 収納の種類で日数を引く。
  * ここで返す日数は一般的な参考値であり、実際の安全性を保証するものではない。
  * この値から導いた期限を表示する箇所には必ず「目安」バッジを付けること。
  */
@@ -53,11 +57,13 @@ const PRESET_DAYS = {
 };
 
 /**
- * 日持ちの目安日数。未定義の組み合わせ（肉・魚を野菜室に置く等）では null を返し、
- * 呼び出し側は期限なし扱いにする。この null は異常ではなく「目安を出せない」正常な状態。
+ * 日持ちの目安日数。未定義の組み合わせ（肉・魚を野菜室に置く等）と、
+ * まだどこにも入れていない食材（kind が null）では null を返し、期限なし扱いにする。
+ * この null は異常ではなく「目安を出せない」正常な状態。
  */
-function presetDaysFor(category, storageLocation) {
-  const days = PRESET_DAYS[category][storageLocation];
+function presetDaysFor(category, storageKind) {
+  if (storageKind === null) return null;
+  const days = PRESET_DAYS[category][storageKind];
   return days === undefined ? null : days;
 }
 
@@ -84,9 +90,7 @@ function addDays(iso, days) {
 function diffDays(fromIso, toIsoStr) {
   const [y1, m1, d1] = fromIso.split('-').map(Number);
   const [y2, m2, d2] = toIsoStr.split('-').map(Number);
-  const a = Date.UTC(y1, m1 - 1, d1);
-  const b = Date.UTC(y2, m2 - 1, d2);
-  return Math.round((b - a) / 86400000);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
 }
 
 function formatDate(iso) {
@@ -98,14 +102,14 @@ function formatDate(iso) {
 
 /**
  * 実効期限 = 入力された期限、なければ 登録日 + プリセット日数。
- * 推定値は保存せず参照のたびにここで導出する。
+ * 推定値は保存せず参照のたびにここで導出する。収納を移せば目安も変わる。
  * 戻り値 date が null なら期限なし扱い（アラート対象外）。
  */
-function effectiveExpiry(item) {
+function effectiveExpiry(item, storageKind) {
   if (item.expiryDate) {
     return { date: item.expiryDate, estimated: false };
   }
-  const days = presetDaysFor(item.category, item.storageLocation);
+  const days = presetDaysFor(item.category, storageKind);
   if (days === null) {
     return { date: null, estimated: true };
   }
@@ -114,14 +118,12 @@ function effectiveExpiry(item) {
 
 /* --- 緊急度 ------------------------------------------------------------ */
 
-const URGENCY_ORDER = ['EXPIRED', 'CRITICAL', 'WARN', 'CAUTION', 'NORMAL', 'NONE'];
-
 /**
  * 残り日数から緊急度を決める。
  * 期限切れ / 当日〜1日前 / 2〜3日前 / 4〜7日前 / それ以降 / 期限なし。
  */
-function urgencyOf(item, today) {
-  const { date, estimated } = effectiveExpiry(item);
+function urgencyOf(item, storageKind, today) {
+  const { date, estimated } = effectiveExpiry(item, storageKind);
   if (date === null) {
     return { level: 'NONE', days: null, date: null, estimated };
   }
@@ -148,13 +150,24 @@ function remainingLabel(days) {
   return `あと${days}日`;
 }
 
+/** 図の中の小さなチップに収まる短い表記。負の数が過ぎた日数を表す */
+function shortRemainingLabel(days) {
+  if (days === null) return '—';
+  if (days < 0) return `-${-days}日`;
+  if (days === 0) return '今日';
+  return `${days}日`;
+}
+
 /* --- 並べ替え ---------------------------------------------------------- */
 
-/** 期限が近い順。期限なしは末尾へ回す。これがアプリの心臓部 */
-function sortByExpiry(items, today) {
+/**
+ * 期限が近い順。期限なしは末尾へ回す。これがアプリの心臓部。
+ * kindFor は食材から収納の種類を引く関数（収納はユーザーが編集するので外から渡す）。
+ */
+function sortByExpiry(items, kindFor, today) {
   return [...items].sort((a, b) => {
-    const ua = urgencyOf(a, today);
-    const ub = urgencyOf(b, today);
+    const ua = urgencyOf(a, kindFor(a), today);
+    const ub = urgencyOf(b, kindFor(b), today);
     if (ua.date === null && ub.date === null) return a.name.localeCompare(b.name, 'ja');
     if (ua.date === null) return 1;
     if (ub.date === null) return -1;
