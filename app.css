@@ -32,6 +32,9 @@
   --caution-bar: #e7bf2e;
   --caution-bg: #faf4dd;
   --calm-bar: #b6c4ce;
+  --metal-1: #fbfdfe;
+  --metal-2: #dde7ed;
+  --frost: rgba(120, 165, 190, .16);
 
   --radius: 14px;
   --radius-sm: 9px;
@@ -69,6 +72,9 @@
     --caution-bar: #d4b43c;
     --caution-bg: #262110;
     --calm-bar: #3c515c;
+    --metal-1: #202e36;
+    --metal-2: #131d23;
+    --frost: rgba(140, 200, 230, .10);
 
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
   }
@@ -101,6 +107,9 @@
   --caution-bar: #d4b43c;
   --caution-bg: #262110;
   --calm-bar: #3c515c;
+  --metal-1: #202e36;
+  --metal-2: #131d23;
+  --frost: rgba(140, 200, 230, .10);
 
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
 }
@@ -508,59 +517,141 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 
 /* --- 筐体（冷蔵庫・棚） ------------------------------------------------- */
 
-.unit {
-  position: relative;
+.unit { position: relative; }
+
+/* 本体。上は丸く下は角ばらせ、家庭用冷蔵庫の輪郭に寄せる */
+.unit[data-type="FRIDGE"] {
+  background: linear-gradient(176deg, var(--metal-1), var(--metal-2));
+  border: 1px solid var(--line-strong);
+  border-radius: 20px 20px 7px 7px;
+  padding: 8px 8px 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 6px;
+}
+/* 脚 */
+.unit[data-type="FRIDGE"]::before,
+.unit[data-type="FRIDGE"]::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  width: 30px;
+  height: 6px;
+  border-radius: 0 0 4px 4px;
+  background: var(--line-strong);
+}
+.unit[data-type="FRIDGE"]::before { left: 22px; }
+.unit[data-type="FRIDGE"]::after { right: 22px; }
+
+.unit[data-type="SHELF"] {
   background: var(--surface);
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
-  padding: 10px 10px 12px;
+  border-radius: 12px;
+  padding: 8px;
   box-shadow: var(--shadow);
 }
-.unit-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 9px; min-height: 30px; }
-.unit-name { font-size: 13px; font-weight: 700; color: var(--ink-2); letter-spacing: .04em; }
-.unit-body { display: flex; flex-direction: column; gap: 7px; }
 
-/* 取っ手。冷蔵庫らしさはこの一本だけで足りる */
-.unit-handle {
-  position: absolute;
-  right: 3px; top: 46px; bottom: 18px;
-  width: 4px;
-  border-radius: 4px;
-  background: var(--line-strong);
-  opacity: .8;
-}
+.unit-head { display: flex; align-items: center; gap: 8px; padding: 3px 6px 8px; min-height: 30px; flex-wrap: wrap; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--ink-2); letter-spacing: .04em; }
+
+/* 段の間の隙間がそのまま扉と引き出しの継ぎ目になる */
+.unit-body { display: flex; flex-direction: column; gap: 5px; }
 
 .unit-name-input {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   background: var(--ground);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  padding: 7px 9px;
+  padding: 8px 9px;
   font-size: 14px;
   font-weight: 700;
 }
+.unit-type-select {
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 9px;
+  font-size: 13px;
+  min-height: 40px;
+}
 
-/* --- 段・引き出し ------------------------------------------------------- */
+/* --- 扉（棚とドアポケットを抱える一枚板） -------------------------------- */
+
+.door {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 13px 13px 9px 9px;
+  padding: 8px 26px 9px 9px;
+}
+.door-inner { display: flex; flex-direction: column; gap: 7px; }
+
+/* 棚は扉を持たないので、取っ手も余白も出さない */
+.unit[data-type="SHELF"] .door { padding-right: 9px; border-radius: 9px; }
+.unit[data-type="SHELF"] .door-handle { display: none; }
+
+/* 縦の取っ手。冷蔵庫らしさはこの一本が担う */
+.door-handle {
+  position: absolute;
+  right: 9px; top: 16px; bottom: 16px;
+  width: 6px;
+  border-radius: 6px;
+  background: var(--line-strong);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, .12);
+}
+
+/* --- 引き出し ----------------------------------------------------------- */
+
+.drawer { display: flex; gap: 5px; }
+.drawer-box {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 9px 17px;
+}
+/* 前板の横向きの取っ手 */
+.drawer-pull {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 6px;
+  width: 42%;
+  max-width: 130px;
+  height: 5px;
+  border-radius: 5px;
+  background: var(--line-strong);
+}
+
+/* --- 段の中身 ----------------------------------------------------------- */
 
 .comp {
   --size: 2;
-  min-height: calc(40px + var(--size) * 17px);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--ground);
-  padding: 7px 9px 9px;
+  min-height: calc(30px + var(--size) * 16px);
+  border-radius: 6px;
+  padding: 4px 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  transition: border-color .12s, background .12s;
+  gap: 5px;
+  transition: box-shadow .12s, background .12s;
 }
+/* 棚板は下の一本線で表す */
+.comp[data-form="SHELF"] { border-bottom: 3px solid var(--line); border-radius: 5px 5px 2px 2px; }
+/* ドアポケットは手前に立ち上がった縁を持つ */
+.comp[data-form="POCKET"] {
+  background: var(--ground);
+  border-bottom: 5px solid var(--line-strong);
+  border-radius: 4px 4px 9px 9px;
+}
+.comp[data-form="DRAWER"] { padding: 0; }
+
+/* 冷凍は霜の斜線で見分ける */
 .comp[data-kind="FREEZER"] {
-  background: repeating-linear-gradient(135deg, var(--ground), var(--ground) 7px, var(--surface-2) 7px, var(--surface-2) 14px);
+  background-image: repeating-linear-gradient(135deg, transparent, transparent 7px, var(--frost) 7px, var(--frost) 14px);
 }
-/* 野菜室は引き出し。前板のつまみを一本入れて他の段と区別する */
-.comp[data-kind="VEGETABLE_DRAWER"] { border-style: dashed; border-color: var(--line-strong); }
-.comp[data-kind="ROOM_TEMP"] { border-left: 3px solid var(--line-strong); }
+.comp[data-kind="VEGETABLE_DRAWER"] { background-color: var(--ground); border-radius: 6px; }
 
 .comp-head { display: flex; align-items: center; gap: 7px; }
 .comp-name { font-size: 12px; font-weight: 700; color: var(--ink-2); }
@@ -581,14 +672,13 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
   font-variant-numeric: tabular-nums;
 }
 
-.comp-items { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; flex: 1; }
+.comp-items { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; flex: 1; }
 
-/* ドラッグ中の受け皿。輪郭を強めて、どこに落ちるかを迷わせない */
+/* ドラッグ中の受け皿。どこに落ちるかを迷わせない */
 [data-drop].is-over {
-  border-color: var(--accent);
-  border-style: solid;
-  background: var(--accent-soft);
+  background-color: var(--accent-soft);
   box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 7px;
 }
 
 /* --- 食材のチップ ------------------------------------------------------- */
@@ -678,7 +768,7 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 /* --- 配置の編集 --------------------------------------------------------- */
 
-.comp-edit { display: flex; flex-direction: column; gap: 7px; }
+.comp-edit { display: flex; flex-direction: column; gap: 7px; padding: 2px; }
 .comp-edit input, .comp-edit select {
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -687,12 +777,13 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-size: 14px;
   width: 100%;
 }
-.comp-edit-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.comp-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.comp-edit-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 .mini {
-  min-width: 40px;
+  min-width: 36px;
   min-height: 40px;
-  padding: 0 9px;
+  padding: 0 7px;
   border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--ink-2);
@@ -703,7 +794,8 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 .mini:hover:not(:disabled) { background: var(--surface-2); }
 .mini:disabled { opacity: .35; cursor: default; }
 .mini.danger { color: var(--expired); border-color: var(--expired); }
-.mini-label { font-family: var(--mono); font-size: 11px; color: var(--ink-3); padding: 0 3px; }
+.mini[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+.mini-label { font-family: var(--mono); font-size: 11px; color: var(--ink-3); padding: 0 1px; white-space: nowrap; }
 
 .comp-add, .unit-add {
   border: 1px dashed var(--line-strong);

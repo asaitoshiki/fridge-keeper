@@ -8,30 +8,48 @@ const LEGACY_KEY = 'fridgekeeper.state.v1';
 
 /**
  * 収納は「筐体（冷蔵庫・棚）」と、その中の「段・引き出し」の2階層で持つ。
- * 段の名前・大きさ・数はユーザーが自由に変えられるが、期限の目安に効くのは kind だけ。
+ * 段の名前・形・幅・大きさ・数はユーザーが自由に変えられるが、期限の目安に効くのは kind だけ。
  * 見た目の自由度と、日持ちの計算とを切り離しておくための構造。
+ *
+ * form  段の見た目。SHELF=棚 / DRAWER=引き出し / POCKET=ドアポケット
+ * span  2=全幅 / 1=半分（隣の半幅の段と横に並ぶ。製氷室と小さな冷凍室のような並び）
+ *
+ * 初期値は日本の家庭用冷蔵庫によくある構成に寄せてある。
  */
 function defaultLayout() {
   return [
     {
       id: 'unit-fridge',
       name: '冷蔵庫',
+      type: 'FRIDGE',
       compartments: [
-        { id: 'c-door', name: 'ドアポケット', kind: 'FRIDGE', size: 1 },
-        { id: 'c-upper', name: '上段', kind: 'FRIDGE', size: 2 },
-        { id: 'c-lower', name: '下段', kind: 'FRIDGE', size: 2 },
-        { id: 'c-veg', name: '野菜室', kind: 'VEGETABLE_DRAWER', size: 2 },
-        { id: 'c-freezer', name: '冷凍室', kind: 'FREEZER', size: 2 },
+        { id: 'c-door', name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', span: 2, size: 1 },
+        { id: 'c-upper', name: '上段', kind: 'FRIDGE', form: 'SHELF', span: 2, size: 2 },
+        { id: 'c-middle', name: '中段', kind: 'FRIDGE', form: 'SHELF', span: 2, size: 2 },
+        { id: 'c-chilled', name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', span: 2, size: 1 },
+        { id: 'c-ice', name: '製氷室', kind: 'FREEZER', form: 'DRAWER', span: 1, size: 1 },
+        { id: 'c-freezer-s', name: '小さな冷凍室', kind: 'FREEZER', form: 'DRAWER', span: 1, size: 1 },
+        { id: 'c-veg', name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', span: 2, size: 2 },
+        { id: 'c-freezer', name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', span: 2, size: 2 },
       ],
     },
     {
       id: 'unit-pantry',
       name: '常温の棚',
+      type: 'SHELF',
       compartments: [
-        { id: 'c-pantry', name: '棚', kind: 'ROOM_TEMP', size: 2 },
+        { id: 'c-pantry', name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', span: 2, size: 2 },
       ],
     },
   ];
+}
+
+const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
+
+/** 形を指定せずに作られた段に、種類から素直な形をあてがう */
+function defaultFormFor(kind) {
+  if (kind === 'VEGETABLE_DRAWER' || kind === 'FREEZER') return 'DRAWER';
+  return 'SHELF';
 }
 
 function emptyState() {
@@ -65,11 +83,20 @@ function saveState(state) {
   }
 }
 
+/** 形・幅が無かった頃の保存データにも既定値を補い、古い状態のまま描画されないようにする */
 function normalize(parsed) {
   const state = { ...emptyState(), ...parsed };
   if (!Array.isArray(state.layout) || state.layout.length === 0) {
     state.layout = defaultLayout();
+    return state;
   }
+  state.layout.forEach((unit) => {
+    if (!unit.type) unit.type = 'FRIDGE';
+    unit.compartments.forEach((c) => {
+      if (!c.form) c.form = defaultFormFor(c.kind);
+      if (!c.span) c.span = 2;
+    });
+  });
   return state;
 }
 
@@ -129,12 +156,12 @@ function compartmentPath(layout, compartmentId) {
 function withSample(state) {
   const today = todayIso();
   const sample = [
-    { name: '豚こま切れ肉', category: 'MEAT_FISH', at: 'c-upper', expiryType: 'USE_BY', offset: 0, quantity: 1, memo: '半額だったもの' },
+    { name: '豚こま切れ肉', category: 'MEAT_FISH', at: 'c-chilled', expiryType: 'USE_BY', offset: 0, quantity: 1, memo: '半額だったもの' },
     { name: 'にんじん', category: 'VEGETABLE', at: 'c-veg', expiryType: 'UNKNOWN', registeredOffset: -9, quantity: 3, memo: null },
     { name: '絹ごし豆腐', category: 'PROCESSED', at: 'c-upper', expiryType: 'USE_BY', offset: 1, quantity: 2, memo: null },
     { name: '牛乳', category: 'DAIRY', at: 'c-door', expiryType: 'BEST_BEFORE', offset: 2, quantity: 1, memo: null },
     { name: 'キャベツ', category: 'VEGETABLE', at: 'c-veg', expiryType: 'UNKNOWN', registeredOffset: -3, quantity: 1, memo: '半玉' },
-    { name: '卵', category: 'EGG', at: 'c-lower', expiryType: 'BEST_BEFORE', offset: 6, quantity: 8, memo: null },
+    { name: '卵', category: 'EGG', at: 'c-middle', expiryType: 'BEST_BEFORE', offset: 6, quantity: 8, memo: null },
     { name: '冷凍うどん', category: 'FROZEN', at: 'c-freezer', expiryType: 'BEST_BEFORE', registeredOffset: -10, quantity: 4, memo: null },
     { name: 'しょうゆ', category: 'SEASONING', at: 'c-pantry', expiryType: 'BEST_BEFORE', offset: 210, quantity: 1, memo: null },
     { name: 'ヨーグルト', category: 'DAIRY', at: null, expiryType: 'BEST_BEFORE', offset: 9, quantity: 4, memo: null },
