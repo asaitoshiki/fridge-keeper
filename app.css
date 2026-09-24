@@ -32,9 +32,22 @@
   --caution-bar: #e7bf2e;
   --caution-bg: #faf4dd;
   --calm-bar: #b6c4ce;
-  --metal-1: #fbfdfe;
-  --metal-2: #dde7ed;
   --frost: rgba(120, 165, 190, .16);
+
+  /* 立体表現用。上から光が当たる想定で、面ごとに明度を変える */
+  --metal-1: #ffffff;   /* 天面・稜線のハイライト */
+  --metal-2: #d8e4eb;   /* 筐体の正面 */
+  --metal-3: #a6b8c4;   /* 筐体の下端・陰 */
+  --panel-1: #ffffff;   /* 扉と引き出しの前板（上） */
+  --panel-2: #dde7ee;   /* 同（下） */
+  --cavity-1: #a8bbc8;  /* 庫内の奥 */
+  --cavity-2: #d5e0e8;  /* 庫内の手前 */
+  --chrome-hi: #ffffff;
+  --chrome-mid: #adbdc8;
+  --chrome-lo: #5c6e79;
+  --ao: rgba(16, 38, 52, .34);       /* 面と面が接する影 */
+  --ao-soft: rgba(16, 38, 52, .16);
+  --sheen: rgba(255, 255, 255, .9);
 
   --radius: 14px;
   --radius-sm: 9px;
@@ -72,9 +85,21 @@
     --caution-bar: #d4b43c;
     --caution-bg: #262110;
     --calm-bar: #3c515c;
-    --metal-1: #202e36;
-    --metal-2: #131d23;
     --frost: rgba(140, 200, 230, .10);
+
+    --metal-1: #384c57;
+    --metal-2: #1e2c34;
+    --metal-3: #0e161b;
+    --panel-1: #24333b;
+    --panel-2: #162026;
+    --cavity-1: #090f13;
+    --cavity-2: #162128;
+    --chrome-hi: #d7e6ee;
+    --chrome-mid: #7d929e;
+    --chrome-lo: #313f48;
+    --ao: rgba(0, 0, 0, .55);
+    --ao-soft: rgba(0, 0, 0, .3);
+    --sheen: rgba(190, 225, 240, .20);
 
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
   }
@@ -107,9 +132,21 @@
   --caution-bar: #d4b43c;
   --caution-bg: #262110;
   --calm-bar: #3c515c;
-  --metal-1: #202e36;
-  --metal-2: #131d23;
   --frost: rgba(140, 200, 230, .10);
+
+  --metal-1: #384c57;
+  --metal-2: #1e2c34;
+  --metal-3: #0e161b;
+  --panel-1: #24333b;
+  --panel-2: #162026;
+  --cavity-1: #090f13;
+  --cavity-2: #162128;
+  --chrome-hi: #d7e6ee;
+  --chrome-mid: #7d929e;
+  --chrome-lo: #313f48;
+  --ao: rgba(0, 0, 0, .55);
+  --ao-soft: rgba(0, 0, 0, .3);
+  --sheen: rgba(190, 225, 240, .20);
 
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
 }
@@ -516,45 +553,70 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 .stage { display: flex; flex-direction: column; gap: 16px; }
 
 /* --- 筐体（冷蔵庫・棚） ------------------------------------------------- */
+/* 正面は向けたまま、天面・稜線・影だけで立体を作る。
+   中身ごと傾けると文字が読めなくなり、ドラッグの落とし先も掴みにくくなるため。 */
 
 .unit { position: relative; }
-
-/* 本体。上は丸く下は角ばらせ、家庭用冷蔵庫の輪郭に寄せる */
-.unit[data-type="FRIDGE"] {
-  background: linear-gradient(176deg, var(--metal-1), var(--metal-2));
-  border: 1px solid var(--line-strong);
-  border-radius: 20px 20px 7px 7px;
-  padding: 8px 8px 14px;
-  box-shadow: var(--shadow);
-  margin-bottom: 6px;
-}
-/* 脚 */
-.unit[data-type="FRIDGE"]::before,
-.unit[data-type="FRIDGE"]::after {
-  content: "";
-  position: absolute;
-  bottom: -5px;
-  width: 30px;
-  height: 6px;
-  border-radius: 0 0 4px 4px;
-  background: var(--line-strong);
-}
-.unit[data-type="FRIDGE"]::before { left: 22px; }
-.unit[data-type="FRIDGE"]::after { right: 22px; }
-
-.unit[data-type="SHELF"] {
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  padding: 8px;
-  box-shadow: var(--shadow);
-}
-
-.unit-head { display: flex; align-items: center; gap: 8px; padding: 3px 6px 8px; min-height: 30px; flex-wrap: wrap; }
+.unit-head { display: flex; align-items: center; gap: 8px; padding: 0 4px 9px; min-height: 30px; flex-wrap: wrap; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--ink-2); letter-spacing: .04em; }
 
-/* 段の間の隙間がそのまま扉と引き出しの継ぎ目になる */
-.unit-body { display: flex; flex-direction: column; gap: 5px; }
+.case { position: relative; }
+
+/* 本体。上ほど明るく、下端に陰を落として厚みを出す */
+.unit[data-type="FRIDGE"] .case {
+  margin-top: 17px;
+  padding: 10px 10px 15px;
+  border-radius: 9px 9px 6px 6px;
+  background:
+    linear-gradient(102deg, var(--sheen) 0%, transparent 18%, transparent 58%, var(--sheen) 74%, transparent 92%),
+    linear-gradient(177deg, var(--metal-1) 0%, var(--metal-2) 42%, var(--metal-3) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--metal-1),
+    inset 2px 0 4px -3px var(--metal-1),
+    inset -4px 0 8px -5px var(--ao),
+    inset 0 -6px 10px -8px var(--ao),
+    0 0 0 1px var(--ao-soft),
+    0 16px 28px -16px var(--ao);
+}
+
+/* 天面。上辺を狭めた台形にすることで、少し上から見下ろした箱に見える */
+.case-top {
+  position: absolute;
+  left: 0; right: 0; top: -17px;
+  height: 17px;
+  clip-path: polygon(17px 0, calc(100% - 17px) 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, var(--metal-3) 0%, var(--metal-2) 55%, var(--metal-1) 92%);
+  box-shadow: inset 0 1px 0 var(--metal-1), 0 -1px 2px var(--ao-soft);
+  box-shadow: inset 0 1px 0 var(--metal-1);
+}
+
+/* 脚と、その下の床に落ちる影 */
+.case-feet { position: relative; display: block; height: 13px; }
+.case-feet i {
+  position: absolute;
+  bottom: 5px;
+  width: 34px; height: 8px;
+  border-radius: 0 0 5px 5px;
+  background: linear-gradient(180deg, var(--metal-3), var(--chrome-lo));
+}
+.case-feet i:first-child { left: 22px; }
+.case-feet i:last-child { right: 22px; }
+.case-feet::after {
+  content: "";
+  position: absolute;
+  left: 4%; right: 4%; bottom: 0;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(52% 100% at 50% 0%, var(--ao) 0%, transparent 72%);
+}
+
+.unit[data-type="SHELF"] .case {
+  background: linear-gradient(178deg, var(--metal-1), var(--metal-2));
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 9px;
+  box-shadow: inset 0 1px 0 var(--metal-1), 0 8px 18px -14px var(--ao);
+}
 
 .unit-name-input {
   flex: 1 1 120px;
@@ -575,83 +637,118 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
   min-height: 40px;
 }
 
-/* --- 扉（棚とドアポケットを抱える一枚板） -------------------------------- */
+/* 段の間の隙間が、そのまま扉と引き出しの継ぎ目になる */
+.unit-body { display: flex; flex-direction: column; gap: 6px; }
 
-.door {
+/* --- 扉・引き出しの前板 -------------------------------------------------- */
+/* どちらも「手前に出っ張った板」。上辺に光、下辺に影を置いて厚みを出す */
+
+.door, .drawer-box {
   position: relative;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 13px 13px 9px 9px;
-  padding: 8px 26px 9px 9px;
+  background: linear-gradient(179deg, var(--panel-1) 0%, var(--panel-2) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--metal-1),
+    inset 0 -2px 3px -2px var(--ao),
+    inset 3px 0 5px -4px var(--metal-1),
+    inset -3px 0 5px -4px var(--ao),
+    0 2px 3px -1px var(--ao-soft);
 }
-.door-inner { display: flex; flex-direction: column; gap: 7px; }
+
+.door { border-radius: 8px; padding: 10px 32px 11px 10px; }
+.door-inner { display: flex; flex-direction: column; gap: 8px; }
 
 /* 棚は扉を持たないので、取っ手も余白も出さない */
-.unit[data-type="SHELF"] .door { padding-right: 9px; border-radius: 9px; }
+.unit[data-type="SHELF"] .door { padding-right: 10px; }
 .unit[data-type="SHELF"] .door-handle { display: none; }
 
-/* 縦の取っ手。冷蔵庫らしさはこの一本が担う */
+/* 縦の取っ手。金属の円柱に見えるよう、幅の中でハイライトと陰を回す */
 .door-handle {
   position: absolute;
-  right: 9px; top: 16px; bottom: 16px;
-  width: 6px;
-  border-radius: 6px;
-  background: var(--line-strong);
-  box-shadow: inset -1px 0 0 rgba(0, 0, 0, .12);
+  right: 11px; top: 16px; bottom: 16px;
+  width: 9px;
+  border-radius: 5px;
+  background: linear-gradient(90deg,
+    var(--chrome-lo) 0%, var(--chrome-mid) 16%, var(--chrome-hi) 36%,
+    var(--chrome-mid) 62%, var(--chrome-lo) 100%);
+  box-shadow: 0 2px 4px -1px var(--ao), 0 0 0 1px var(--ao-soft);
 }
 
-/* --- 引き出し ----------------------------------------------------------- */
-
-.drawer { display: flex; gap: 5px; }
+.drawer { display: flex; gap: 6px; }
 .drawer-box {
-  position: relative;
   flex: 1 1 0;
   min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 8px 9px 17px;
+  border-radius: 8px;
+  padding: 10px 10px 21px;
 }
-/* 前板の横向きの取っ手 */
+
+/* 前板の横向きの取っ手。上から光が当たる向きで陰影を付ける */
 .drawer-pull {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 6px;
-  width: 42%;
-  max-width: 130px;
-  height: 5px;
+  bottom: 7px;
+  width: 44%;
+  max-width: 132px;
+  height: 8px;
   border-radius: 5px;
-  background: var(--line-strong);
+  background: linear-gradient(180deg,
+    var(--chrome-hi) 0%, var(--chrome-mid) 45%, var(--chrome-lo) 100%);
+  box-shadow: 0 2px 4px -1px var(--ao), 0 0 0 1px var(--ao-soft);
 }
 
-/* --- 段の中身 ----------------------------------------------------------- */
+/* --- 庫内 --------------------------------------------------------------- */
+/* 前板より奥にあることを、落ち込んだ影と暗い面で示す */
 
 .comp {
   --size: 2;
-  min-height: calc(30px + var(--size) * 16px);
+  position: relative;
+  min-height: calc(32px + var(--size) * 17px);
   border-radius: 6px;
-  padding: 4px 6px 6px;
+  padding: 5px 7px 7px;
   display: flex;
   flex-direction: column;
   gap: 5px;
-  transition: box-shadow .12s, background .12s;
+  background: linear-gradient(180deg, var(--cavity-1) 0%, var(--cavity-2) 62%);
+  box-shadow:
+    inset 0 7px 11px -7px var(--ao),
+    inset 0 1px 0 var(--ao-soft),
+    inset 0 -1px 0 var(--metal-1);
+  transition: box-shadow .12s;
 }
-/* 棚板は下の一本線で表す */
-.comp[data-form="SHELF"] { border-bottom: 3px solid var(--line); border-radius: 5px 5px 2px 2px; }
+
+/* 棚板。手前の小口に厚みを持たせてガラス板に見せる */
+.comp[data-form="SHELF"] { padding-bottom: 12px; }
+.comp[data-form="SHELF"]::after {
+  content: "";
+  position: absolute;
+  left: 3px; right: 3px; bottom: 2px;
+  height: 5px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--metal-1) 0%, var(--chrome-mid) 100%);
+  box-shadow: 0 2px 4px -2px var(--ao);
+}
+
 /* ドアポケットは手前に立ち上がった縁を持つ */
-.comp[data-form="POCKET"] {
-  background: var(--ground);
-  border-bottom: 5px solid var(--line-strong);
-  border-radius: 4px 4px 9px 9px;
+.comp[data-form="POCKET"] { padding-bottom: 14px; border-radius: 4px 4px 9px 9px; }
+.comp[data-form="POCKET"]::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 9px;
+  border-radius: 0 0 9px 9px;
+  background: linear-gradient(180deg, var(--panel-1), var(--panel-2));
+  box-shadow: inset 0 1px 0 var(--metal-1), 0 -2px 4px -2px var(--ao);
 }
-.comp[data-form="DRAWER"] { padding: 0; }
+
+/* 引き出しの中は前板がそのまま枠になるので、追加の縁はいらない */
+.comp[data-form="DRAWER"] { border-radius: 5px; }
 
 /* 冷凍は霜の斜線で見分ける */
 .comp[data-kind="FREEZER"] {
-  background-image: repeating-linear-gradient(135deg, transparent, transparent 7px, var(--frost) 7px, var(--frost) 14px);
+  background-image:
+    repeating-linear-gradient(135deg, transparent 0 7px, var(--frost) 7px 14px),
+    linear-gradient(180deg, var(--cavity-1) 0%, var(--cavity-2) 62%);
 }
-.comp[data-kind="VEGETABLE_DRAWER"] { background-color: var(--ground); border-radius: 6px; }
 
 .comp-head { display: flex; align-items: center; gap: 7px; }
 .comp-name { font-size: 12px; font-weight: 700; color: var(--ink-2); }
@@ -676,9 +773,9 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 
 /* ドラッグ中の受け皿。どこに落ちるかを迷わせない */
 [data-drop].is-over {
+  background-image: none;
   background-color: var(--accent-soft);
-  box-shadow: inset 0 0 0 2px var(--accent);
-  border-radius: 7px;
+  box-shadow: inset 0 0 0 2px var(--accent), inset 0 4px 7px -5px var(--ao);
 }
 
 /* --- 食材のチップ ------------------------------------------------------- */
@@ -702,6 +799,7 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  box-shadow: 0 1px 1px var(--ao-soft), 0 3px 6px -4px var(--ao);
 }
 .chip[data-level="EXPIRED"], .chip[data-level="CRITICAL"] { border-left-color: var(--critical-bar); }
 .chip[data-level="WARN"] { border-left-color: var(--warn-bar); }

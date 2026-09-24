@@ -72,6 +72,18 @@ const FridgeView = (function () {
       ? unit.compartments.map((c, i) => compMarkup(c, unit, i, state, opts)).join('')
       : sections(unit.compartments).map((section) => sectionMarkup(section, state, opts)).join('');
 
+    /* 天面と脚を描いて、正面を向いたまま「箱」であることを伝える。
+       中身を斜めにすると文字が読みにくくなるため、立体感は筐体の縁だけで出す。 */
+    const body = `
+      <div class="case">
+        ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
+        <div class="unit-body">
+          ${inner}
+          ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
+        </div>
+      </div>
+      ${unit.type === 'FRIDGE' ? '<span class="case-feet" aria-hidden="true"><i></i><i></i></span>' : ''}`;
+
     return `
       <section class="unit" data-unit="${unit.id}" data-type="${unit.type}">
         <header class="unit-head">
@@ -84,10 +96,7 @@ const FridgeView = (function () {
                <button class="mini danger" type="button" data-del-unit="${unit.id}" aria-label="${esc(unit.name)}を削除">削除</button>`
             : `<span class="unit-name">${esc(unit.name)}</span>`}
         </header>
-        <div class="unit-body">
-          ${inner}
-          ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
-        </div>
+        ${body}
       </section>`;
   }
 
