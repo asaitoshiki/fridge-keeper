@@ -16,7 +16,9 @@
 
   const root = document.getElementById('app');
   const dialog = buildDialog();
+  const confirmDialog = buildConfirmDialog();
   document.body.appendChild(dialog);
+  document.body.appendChild(confirmDialog);
 
   render();
 
@@ -271,29 +273,73 @@
   function deleteCompartment(compartmentId) {
     const inside = state.items.filter((i) => i.compartmentId === compartmentId).length;
     const name = compartmentPath(state.layout, compartmentId);
-    if (inside > 0 && !confirm(`${name}を削除します。中の${inside}件は「買ってきたもの」に戻ります。`)) return;
 
-    releaseItemsIn([compartmentId]);
-    const unit = findUnitOf(state.layout, compartmentId);
-    unit.compartments = unit.compartments.filter((c) => c.id !== compartmentId);
-    commit();
+    askConfirm(`${name}を削除しますか`, inside > 0 ? `中の${inside}件は「買ってきたもの」に戻ります。` : '', () => {
+      releaseItemsIn([compartmentId]);
+      const unit = findUnitOf(state.layout, compartmentId);
+      unit.compartments = unit.compartments.filter((c) => c.id !== compartmentId);
+      commit();
+    });
   }
 
   function deleteUnit(unitId) {
     const unit = state.layout.find((u) => u.id === unitId);
     const ids = unit.compartments.map((c) => c.id);
     const inside = state.items.filter((i) => ids.includes(i.compartmentId)).length;
-    if (!confirm(`${unit.name}を丸ごと削除します。${inside > 0 ? `中の${inside}件は「買ってきたもの」に戻ります。` : ''}`)) return;
 
-    releaseItemsIn(ids);
-    state.layout = state.layout.filter((u) => u.id !== unitId);
-    commit();
+    askConfirm(`${unit.name}を丸ごと削除しますか`, inside > 0 ? `中の${inside}件は「買ってきたもの」に戻ります。` : '', () => {
+      releaseItemsIn(ids);
+      state.layout = state.layout.filter((u) => u.id !== unitId);
+      commit();
+    });
   }
 
   function releaseItemsIn(compartmentIds) {
     state.items.forEach((item) => {
       if (compartmentIds.includes(item.compartmentId)) item.compartmentId = null;
     });
+  }
+
+  /* --- 確認ダイアログ --------------------------------------------------- */
+
+  /**
+   * ブラウザの confirm() は使わない。
+   * サンドボックス化された iframe（Artifact などの埋め込み）では無効化され、
+   * 常に false を返してしまうため、押しても何も起きない削除ボタンになる。
+   */
+  function buildConfirmDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'confirm';
+    el.innerHTML = `
+      <div class="sheet-form confirm-form">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-body"></p>
+        <div class="form-actions">
+          <button class="btn btn-ghost" type="button" id="confirm-cancel">やめる</button>
+          <button class="btn btn-delete" type="button" id="confirm-ok">削除する</button>
+        </div>
+      </div>`;
+    el.querySelector('#confirm-cancel').addEventListener('click', () => el.close());
+    return el;
+  }
+
+  function askConfirm(title, body, onYes) {
+    confirmDialog.querySelector('#confirm-title').textContent = title;
+    const bodyEl = confirmDialog.querySelector('#confirm-body');
+    bodyEl.textContent = body;
+    bodyEl.hidden = !body;
+
+    const ok = confirmDialog.querySelector('#confirm-ok');
+    /* 差し替えて前回の確認の宛先が残らないようにする */
+    const fresh = ok.cloneNode(true);
+    ok.replaceWith(fresh);
+    fresh.addEventListener('click', () => {
+      confirmDialog.close();
+      onYes();
+    });
+
+    confirmDialog.showModal();
+    confirmDialog.querySelector('#confirm-cancel').focus();
   }
 
   /* --- 入力ダイアログ --------------------------------------------------- */
