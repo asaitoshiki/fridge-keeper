@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -209,12 +211,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     }
 }
 
-private fun Modifier.offsetPx(x: Int, y: Int): Modifier = this.then(
-    Modifier.layoutOffset(x, y),
-)
-
-private fun Modifier.layoutOffset(x: Int, y: Int): Modifier =
-    androidx.compose.foundation.layout.offset { IntOffset(x, y) }
+private fun Modifier.offsetPx(x: Int, y: Int): Modifier = this.offset { IntOffset(x, y) }
 
 private fun newItem(): FoodItemEntity = FoodItemEntity(
     id = 0L,
@@ -399,7 +396,7 @@ private fun ExpiryRow(state: HomeUiState, card: ItemCard, onOpenItem: (FoodItemE
     Row(
         Modifier
             .fillMaxWidth()
-            .height(intrinsicSize = androidx.compose.ui.layout.IntrinsicSize.Min),
+            .height(IntrinsicSize.Min),
     ) {
         Box(
             Modifier
