@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 配色は Compose 側の MaterialTheme が担うため、こちらは ActionBar を消すだけの最小定義 -->
+    <style name="Theme.FridgeKeeper" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

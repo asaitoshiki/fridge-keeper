@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 冷蔵庫を模した単純な図形。アダプティブアイコンのセーフゾーン内に収めている -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,28h32a4,4 0,0 1,4 4v44a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-44a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#2E7D32"
+        android:pathData="M38,50h32v3h-32z" />
+    <path
+        android:fillColor="#2E7D32"
+        android:pathData="M42,38h3v8h-3z" />
+    <path
+        android:fillColor="#2E7D32"
+        android:pathData="M42,58h3v8h-3z" />
+</vector>
