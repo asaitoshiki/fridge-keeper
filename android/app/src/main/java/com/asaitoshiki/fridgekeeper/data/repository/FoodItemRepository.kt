@@ -13,8 +13,6 @@ class FoodItemRepository @Inject constructor(
 ) {
     fun observeAll(): Flow<List<FoodItemEntity>> = foodItemDao.observeAll()
 
-    suspend fun findById(id: Long): FoodItemEntity? = foodItemDao.findById(id)
-
     suspend fun add(item: FoodItemEntity): Long = foodItemDao.insert(item)
 
     suspend fun update(item: FoodItemEntity) = foodItemDao.update(item)

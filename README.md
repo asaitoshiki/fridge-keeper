@@ -6,6 +6,21 @@
 - 仕様書: [`docs/fridge-app-spec.md`](docs/fridge-app-spec.md)
 - 開発方針: [`CLAUDE.md`](CLAUDE.md)
 
+## 中身
+
+| | 場所 | 状態 |
+|---|---|---|
+| Web 版 | リポジトリ直下（`index.html` ほか） | 動作中。仕様の試作台として使う |
+| Android 版 | `android/` | 移植中。CI が debug APK をビルドする |
+
+### APK の受け取り方（Android Studio は不要）
+
+1. [Actions](../../actions/workflows/android.yml) を開く
+2. 一番上の成功した実行（緑のチェック）をクリック
+3. 下の **Artifacts** から `fridge-keeper-debug-apk` をダウンロード
+4. zip を展開して、中の `.apk` をスマホに移して開く
+   - 「提供元不明のアプリ」の許可を求められたら許可する
+
 ## 進め方
 
 **まず Web 版で完成させ、そのあと Android へ移植する。**
