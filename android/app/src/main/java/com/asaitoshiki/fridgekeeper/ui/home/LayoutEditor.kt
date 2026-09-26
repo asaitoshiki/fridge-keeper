@@ -1,0 +1,179 @@
+package com.asaitoshiki.fridgekeeper.ui.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import com.asaitoshiki.fridgekeeper.data.local.entity.CompartmentEntity
+import com.asaitoshiki.fridgekeeper.data.local.entity.StorageUnitEntity
+import com.asaitoshiki.fridgekeeper.domain.model.CompartmentForm
+import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
+import com.asaitoshiki.fridgekeeper.domain.model.StorageUnitType
+import com.asaitoshiki.fridgekeeper.ui.label
+
+/**
+ * 配置の編集。
+ * 段の名前・種類・形・幅・高さ・並び順を変えられる。
+ * 変えられるのは見た目と、期限の目安を引く種類だけで、既にある食材は失われない。
+ */
+@Composable
+fun LayoutEditor(
+    state: HomeUiState,
+    onSaveCompartment: (CompartmentEntity) -> Unit,
+    onMoveCompartment: (String, String, Int) -> Unit,
+    onDeleteCompartment: (String) -> Unit,
+    onAddCompartment: (String) -> Unit,
+    onRenameUnit: (StorageUnitEntity, String) -> Unit,
+    onSetUnitType: (StorageUnitEntity, StorageUnitType) -> Unit,
+    onDeleteUnit: (String) -> Unit,
+    onAddUnit: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            text = "段の名前・種類・形・幅・高さを変えられます。形を「引き出し」にすると独立した" +
+                "引き出しになり、幅を「半分」にすると隣の段と横に並びます。" +
+                "段を消すと、中の食材は「買ってきたもの」に戻ります。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        state.units.forEach { unitView ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = unitView.unit.name,
+                        onValueChange = { onRenameUnit(unitView.unit, it) },
+                        label = { Text("収納の名前") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { onDeleteUnit(unitView.unit.id) },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("削除") }
+                }
+
+                Picker(
+                    value = unitView.unit.type,
+                    options = StorageUnitType.entries,
+                    labelOf = { "見た目：${it.label}" },
+                    onSelect = { onSetUnitType(unitView.unit, it) },
+                )
+
+                unitView.compartments.forEachIndexed { index, view ->
+                    CompartmentEditor(
+                        compartment = view.compartment,
+                        isFirst = index == 0,
+                        isLast = index == unitView.compartments.lastIndex,
+                        onSave = onSaveCompartment,
+                        onMove = { delta -> onMoveCompartment(unitView.unit.id, view.compartment.id, delta) },
+                        onDelete = { onDeleteCompartment(view.compartment.id) },
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { onAddCompartment(unitView.unit.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("＋ 段を追加") }
+            }
+        }
+
+        Button(onClick = onAddUnit, modifier = Modifier.fillMaxWidth()) { Text("＋ 収納を追加") }
+    }
+}
+
+@Composable
+private fun CompartmentEditor(
+    compartment: CompartmentEntity,
+    isFirst: Boolean,
+    isLast: Boolean,
+    onSave: (CompartmentEntity) -> Unit,
+    onMove: (Int) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = compartment.name,
+            onValueChange = { onSave(compartment.copy(name = it)) },
+            label = { Text("段の名前") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Picker(
+                value = compartment.location,
+                options = StorageLocation.entries,
+                labelOf = { it.label },
+                onSelect = { onSave(compartment.copy(location = it)) },
+                modifier = Modifier.weight(1f),
+            )
+            Picker(
+                value = compartment.form,
+                options = CompartmentForm.entries,
+                labelOf = { it.label },
+                onSelect = { onSave(compartment.copy(form = it)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(onClick = { onSave(compartment.copy(span = if (compartment.span == 1) 2 else 1)) }) {
+                Text(if (compartment.span == 1) "半分" else "全幅")
+            }
+            OutlinedButton(
+                onClick = { onSave(compartment.copy(size = (compartment.size - 1).coerceAtLeast(1))) },
+                enabled = compartment.size > 1,
+            ) { Text("−") }
+            Text("高さ ${compartment.size}", style = MaterialTheme.typography.labelMedium)
+            OutlinedButton(
+                onClick = { onSave(compartment.copy(size = (compartment.size + 1).coerceAtMost(4))) },
+                enabled = compartment.size < 4,
+            ) { Text("＋") }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { onMove(-1) }, enabled = !isFirst) { Text("↑") }
+            OutlinedButton(onClick = { onMove(1) }, enabled = !isLast) { Text("↓") }
+            TextButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("この段を削除") }
+        }
+    }
+}

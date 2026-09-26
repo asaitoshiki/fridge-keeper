@@ -20,4 +20,8 @@ class FoodItemRepository @Inject constructor(
     suspend fun update(item: FoodItemEntity) = foodItemDao.update(item)
 
     suspend fun delete(item: FoodItemEntity) = foodItemDao.delete(item)
+
+    /** 収納を移す。期限を入力していない食材は、移した先に応じて目安も変わる */
+    suspend fun moveTo(itemId: Long, compartmentId: String?) =
+        foodItemDao.moveTo(itemId, compartmentId)
 }

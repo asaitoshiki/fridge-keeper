@@ -20,16 +20,25 @@ interface FoodItemDao {
     @Query("SELECT * FROM food_items")
     fun observeAll(): Flow<List<FoodItemEntity>>
 
-    /** 編集画面で使う。削除済みの食材を開こうとした場合は null になる */
-    @Query("SELECT * FROM food_items WHERE id = :id")
-    suspend fun findById(id: Long): FoodItemEntity?
+    @Query("SELECT COUNT(*) FROM food_items")
+    suspend fun count(): Int
 
     @Insert
     suspend fun insert(item: FoodItemEntity): Long
+
+    @Insert
+    suspend fun insertAll(items: List<FoodItemEntity>)
 
     @Update
     suspend fun update(item: FoodItemEntity)
 
     @Delete
     suspend fun delete(item: FoodItemEntity)
+
+    /** 段を消したときに、中の食材を「買ってきたもの」へ戻す */
+    @Query("UPDATE food_items SET compartmentId = NULL WHERE compartmentId IN (:compartmentIds)")
+    suspend fun releaseFrom(compartmentIds: List<String>)
+
+    @Query("UPDATE food_items SET compartmentId = :compartmentId WHERE id = :itemId")
+    suspend fun moveTo(itemId: Long, compartmentId: String?)
 }

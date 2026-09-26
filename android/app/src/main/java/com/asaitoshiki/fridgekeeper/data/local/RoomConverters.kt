@@ -1,10 +1,12 @@
 package com.asaitoshiki.fridgekeeper.data.local
 
 import androidx.room.TypeConverter
+import com.asaitoshiki.fridgekeeper.domain.model.CompartmentForm
 import com.asaitoshiki.fridgekeeper.domain.model.ConsumptionType
 import com.asaitoshiki.fridgekeeper.domain.model.ExpiryType
 import com.asaitoshiki.fridgekeeper.domain.model.FoodCategory
 import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
+import com.asaitoshiki.fridgekeeper.domain.model.StorageUnitType
 import java.time.LocalDate
 
 /**
@@ -45,4 +47,16 @@ class RoomConverters {
 
     @TypeConverter
     fun toConsumptionType(value: String?): ConsumptionType? = value?.let(ConsumptionType::valueOf)
+
+    @TypeConverter
+    fun fromCompartmentForm(value: CompartmentForm?): String? = value?.name
+
+    @TypeConverter
+    fun toCompartmentForm(value: String?): CompartmentForm? = value?.let(CompartmentForm::valueOf)
+
+    @TypeConverter
+    fun fromStorageUnitType(value: StorageUnitType?): String? = value?.name
+
+    @TypeConverter
+    fun toStorageUnitType(value: String?): StorageUnitType? = value?.let(StorageUnitType::valueOf)
 }

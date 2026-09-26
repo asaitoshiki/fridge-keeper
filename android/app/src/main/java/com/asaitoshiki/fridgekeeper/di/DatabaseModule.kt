@@ -5,8 +5,8 @@ import androidx.room.Room
 import com.asaitoshiki.fridgekeeper.data.local.FridgeDatabase
 import com.asaitoshiki.fridgekeeper.data.local.dao.ConsumptionLogDao
 import com.asaitoshiki.fridgekeeper.data.local.dao.FoodItemDao
-import com.asaitoshiki.fridgekeeper.data.local.dao.FrequentItemTemplateDao
 import com.asaitoshiki.fridgekeeper.data.local.dao.JanProductDictionaryDao
+import com.asaitoshiki.fridgekeeper.data.local.dao.StorageDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,6 +24,9 @@ object DatabaseModule {
         Room.databaseBuilder(context, FridgeDatabase::class.java, FridgeDatabase.NAME).build()
 
     @Provides
+    fun provideStorageDao(database: FridgeDatabase): StorageDao = database.storageDao()
+
+    @Provides
     fun provideFoodItemDao(database: FridgeDatabase): FoodItemDao = database.foodItemDao()
 
     @Provides
@@ -33,8 +36,4 @@ object DatabaseModule {
     @Provides
     fun provideConsumptionLogDao(database: FridgeDatabase): ConsumptionLogDao =
         database.consumptionLogDao()
-
-    @Provides
-    fun provideFrequentItemTemplateDao(database: FridgeDatabase): FrequentItemTemplateDao =
-        database.frequentItemTemplateDao()
 }
