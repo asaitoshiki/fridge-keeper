@@ -21,7 +21,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # setup-android アクションは廃止された 'tools' パッケージを掴みに行って失敗する。
+      # ランナーには Android SDK が最初から入っているので、そちらを直接使う。
+      - name: Android SDK を用意
+        run: |
+          set -eux
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
 

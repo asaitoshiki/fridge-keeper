@@ -64,9 +64,12 @@ object PresetExpiryTable {
 
     /**
      * 日持ちの目安日数を返す。
-     * 未定義の組み合わせ（例：肉・魚を野菜室）では null を返し、呼び出し側は期限なし扱いとする。
+     * 未定義の組み合わせ（例：肉・魚を野菜室）と、まだどこにも入れていない食材では
+     * null を返し、呼び出し側は期限なし扱いとする。
      * この null は不正な状態ではなく「目安を出せない」という正常な業務状態である。
      */
-    fun daysFor(category: FoodCategory, storageLocation: StorageLocation): Int? =
-        presetDays.getValue(category)[storageLocation]
+    fun daysFor(category: FoodCategory, storageLocation: StorageLocation?): Int? {
+        if (storageLocation == null) return null
+        return presetDays.getValue(category)[storageLocation]
+    }
 }
