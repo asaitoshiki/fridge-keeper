@@ -84,7 +84,19 @@ function defaultFormFor(kind) {
 }
 
 function emptyState() {
-  return { version: 2, items: [], layout: defaultLayout(), sampleLoaded: false };
+  return {
+    version: 2,
+    items: [],
+    layout: defaultLayout(),
+    /* 食べた・捨てたの履歴。食材を消したあとも残るので別に持つ */
+    logs: [],
+    /* ストリークの起点。一度も捨てていない間はここから数える */
+    startedAt: todayIso(),
+    bestStreak: 0,
+    /* 買い物リスト。共有はOSの共有シートへ投げるだけで、サーバーは持たない */
+    shopping: [],
+    sampleLoaded: false,
+  };
 }
 
 /**
@@ -125,6 +137,10 @@ function normalize(parsed) {
     state.layout = defaultLayout();
     return state;
   }
+  if (!Array.isArray(state.logs)) state.logs = [];
+  if (!Array.isArray(state.shopping)) state.shopping = [];
+  if (!state.startedAt) state.startedAt = todayIso();
+  if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   state.layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
     if (unit.color === undefined) unit.color = null;

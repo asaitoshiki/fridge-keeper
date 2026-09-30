@@ -285,23 +285,49 @@ button, input, select, textarea { font: inherit; color: inherit; }
   box-shadow: var(--shadow);
 }
 
+.row-wrap {
+  position: relative;
+  overflow: hidden;
+  /* 横は自分で扱い、縦は画面のスクロールに譲る */
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.row-wrap + .row-wrap { border-top: 1px solid var(--line); }
+
 .row {
+  position: relative;
   display: grid;
   grid-template-columns: 4px 1fr auto;
   align-items: stretch;
-  gap: 0;
-  border-top: 1px solid var(--line);
-  background: none;
-  border-left: 0; border-right: 0; border-bottom: 0;
+  background: var(--surface);
   width: 100%;
-  padding: 0;
-  text-align: left;
   cursor: pointer;
-  font: inherit;
-  color: inherit;
+  transition: transform .18s ease;
 }
-.row:first-child { border-top: 0; }
-.row:hover { background: var(--surface-2); }
+.row-wrap[data-mode] .row { transition: none; }
+.row-wrap:hover .row { background: var(--surface-2); }
+
+/* 引いた先に出る操作。どちらへ引いているかが色と言葉で分かるようにする */
+.row-behind {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.behind { opacity: 0; transition: opacity .12s; }
+.row-wrap[data-mode="eat"] .row-behind { background: var(--accent-soft); color: var(--accent); }
+.row-wrap[data-mode="eat"] .behind-eat { opacity: 1; }
+.row-wrap[data-mode="finish"] .row-behind { background: var(--accent-soft); color: var(--accent); }
+.row-wrap[data-mode="finish"] .behind-off { opacity: 1; }
+.row-wrap[data-mode="discard"] .row-behind { background: var(--expired-bg); color: var(--expired); }
+.row-wrap[data-mode="discard"] .behind-off { opacity: 1; }
 
 .row-bar { background: var(--calm-bar); }
 .row[data-level="EXPIRED"] .row-bar,
@@ -1117,4 +1143,195 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 @media (max-width: 400px) {
   .field-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ===========================================================================
+   継続日数・取り消し・食材の操作
+   =========================================================================== */
+
+.streak {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 15px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.streak-label { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.streak-days { font-family: var(--mono); font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.streak-days b { font-size: 22px; color: var(--accent); }
+.streak-best {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 取り消しの帯。指の届く下端に出す */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 11px 12px 11px 16px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--surface);
+  box-shadow: 0 10px 28px -10px rgba(10, 24, 32, .65);
+  font-size: 13px;
+}
+.undo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-button {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 8px;
+  min-height: 36px;
+}
+:root:not([data-theme="light"]) .undo-bar { color: var(--ground); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .undo-bar { background: var(--surface-2); color: var(--ink); }
+}
+:root[data-theme="dark"] .undo-bar { background: var(--surface-2); color: var(--ink); }
+
+.action-form { gap: 9px; }
+.action-form h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.action-form p { margin: 0 0 4px; font-size: 12.5px; color: var(--ink-3); }
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 15px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.action-btn:hover { background: var(--accent-soft); }
+.action-btn span { font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.action-bad { border-color: var(--expired); color: var(--expired); }
+.action-bad:hover { background: var(--expired-bg); }
+.action-plain { border-color: var(--line-strong); color: var(--ink-2); }
+.action-plain:hover { background: var(--surface-2); }
+
+/* ===========================================================================
+   買い物リスト・共有・設定
+   =========================================================================== */
+
+.masthead-side { display: flex; align-items: center; gap: 4px; }
+
+.buy { display: flex; flex-direction: column; gap: 14px; }
+.buy-add { display: flex; gap: 8px; }
+.buy-add input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  font-size: 15px;
+  min-height: 46px;
+}
+.buy-add .btn { flex: 0 0 auto; }
+
+.buy-empty { margin: 0; font-size: 13px; color: var(--ink-3); padding: 18px 2px; }
+
+.buy-list {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.buy-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 52px;
+  cursor: pointer;
+}
+.buy-row + .buy-row { border-top: 1px solid var(--line); }
+.buy-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: 0 0 auto; }
+.buy-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.buy-row.is-done > span { color: var(--ink-3); text-decoration: line-through; }
+.buy-remove {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 8px;
+  min-height: 38px;
+  min-width: 38px;
+  border-radius: 8px;
+}
+.buy-remove:hover { background: var(--surface-2); color: var(--expired); }
+
+.buy-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.buy-actions .btn { flex: 1 1 auto; }
+.buy-actions .btn:disabled { opacity: .45; cursor: default; }
+
+.buy-share {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.buy-share h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.buy-share p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink-3); }
+
+/* --- 設定 --------------------------------------------------------------- */
+
+.settings-block { display: flex; flex-direction: column; gap: 11px; }
+.settings-block h3 { margin: 0; font-size: 14px; font-weight: 700; }
+
+/* 前提が変わる設定なので、目立たせたうえで既定は無効にしてある */
+.warn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--ink-2);
+  background: var(--caution-bg);
+  border-left: 3px solid var(--caution-bar);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 12px;
+}
+
+.check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.check-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
+.check-row span { font-size: 15px; font-weight: 500; }
+
+#share-fallback textarea {
+  width: 100%;
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 11px;
+  font-size: 13px;
+  font-family: var(--mono);
+  resize: vertical;
 }

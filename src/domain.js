@@ -158,6 +158,21 @@ function shortRemainingLabel(days) {
   return `${days}日`;
 }
 
+/* --- 消費と廃棄 --------------------------------------------------------- */
+
+const CONSUMPTION_LABELS = { EATEN: '食べた', DISCARDED: '捨てた' };
+
+/**
+ * 食品ロスなし継続日数。
+ * 最後に「捨てた」を記録した日から今日まで。一度も捨てていなければ利用開始日から。
+ * 捨てた記録が入るとここが0に戻る。このアプリの世界観の中心にある数字。
+ */
+function streakDays(logs, startedAt, today) {
+  const discarded = logs.filter((log) => log.type === 'DISCARDED').map((log) => log.date).sort();
+  const from = discarded.length > 0 ? discarded[discarded.length - 1] : startedAt;
+  return Math.max(0, diffDays(from, today));
+}
+
 /* --- 並べ替え ---------------------------------------------------------- */
 
 /**

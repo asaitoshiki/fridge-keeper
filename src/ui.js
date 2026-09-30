@@ -19,8 +19,16 @@
   const root = document.getElementById('app');
   const dialog = buildDialog();
   const confirmDialog = buildConfirmDialog();
+  const actionDialog = buildActionDialog();
+  const settingsDialog = buildSettingsDialog();
+  const shareDialog = buildShareDialog();
+  const undoBar = buildUndoBar();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
+  document.body.appendChild(actionDialog);
+  document.body.appendChild(settingsDialog);
+  document.body.appendChild(shareDialog);
+  document.body.appendChild(undoBar);
 
   render();
 
@@ -31,8 +39,9 @@
     root.innerHTML = [
       masthead(),
       summary(today),
+      streakBanner(today),
       tabs(),
-      view === 'fridge' ? fridgePane(today) : listPane(today),
+      paneFor(view, today),
       disclaimer(),
     ].join('');
     root.insertAdjacentHTML('beforeend', fab());
@@ -47,7 +56,10 @@
     return `
       <header class="masthead">
         <h1 class="wordmark">冷蔵庫<span>キーパー</span></h1>
-        <div class="tally">${state.items.length} ITEMS${state.sampleLoaded ? ' · SAMPLE' : ''}</div>
+        <div class="masthead-side">
+          <span class="tally">${state.items.length} ITEMS</span>
+          <button class="icon-btn" type="button" id="open-settings" aria-label="設定">⚙</button>
+        </div>
       </header>`;
   }
 
@@ -86,13 +98,30 @@
       </section>`;
   }
 
+  /**
+   * 食品ロスなし継続日数。捨てた記録を入れると0に戻る。
+   * 「捨てなかった」ことを積み上げて見せる、ポジティブな動機付けの数字。
+   */
+  function streakBanner(today) {
+    if (state.items.length === 0 && state.logs.length === 0) return '';
+    const days = streakDays(state.logs, state.startedAt, today);
+    const best = Math.max(state.bestStreak, days);
+
+    return `
+      <section class="streak">
+        <span class="streak-label">食品ロスなし</span>
+        <span class="streak-days"><b>${days}</b>日</span>
+        <span class="streak-best">最高 ${best}日</span>
+      </section>`;
+  }
+
   function tabs() {
     const tab = (key, label) =>
       `<button class="tab" type="button" data-view="${key}" aria-pressed="${view === key}">${label}</button>`;
     return `
       <div class="tabbar">
         <nav class="tabs" aria-label="表示の切り替え">
-          ${tab('fridge', '冷蔵庫')}${tab('list', '期限順')}
+          ${tab('fridge', '冷蔵庫')}${tab('list', '期限順')}${tab('shopping', '買い物')}
         </nav>
         ${view === 'fridge'
           ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
@@ -100,6 +129,12 @@
              </button>`
           : ''}
       </div>`;
+  }
+
+  function paneFor(current, today) {
+    if (current === 'fridge') return fridgePane(today);
+    if (current === 'shopping') return shoppingPane();
+    return listPane(today);
   }
 
   /* --- 冷蔵庫の図 ------------------------------------------------------- */
@@ -158,20 +193,133 @@
     ].join('');
 
     return `
-      <button class="row" type="button" data-id="${item.id}" data-level="${u.level}" data-estimated="${u.estimated}">
-        <span class="row-bar" aria-hidden="true"></span>
-        <span class="row-main">
-          <span class="row-name">${esc(item.name)}${item.quantity > 1 ? `<span class="qty">×${item.quantity}</span>` : ''}</span>
-          <span class="row-meta">
-            ${esc(compartmentPath(state.layout, item.compartmentId))}・${CATEGORY_LABELS[item.category]}
-            ${badges}
+      <div class="row-wrap" data-id="${item.id}">
+        <div class="row-behind" aria-hidden="true">
+          <span class="behind behind-eat">食べた</span>
+          <span class="behind behind-off">食べきった</span>
+        </div>
+        <div class="row" data-level="${u.level}" data-estimated="${u.estimated}">
+          <span class="row-bar" aria-hidden="true"></span>
+          <span class="row-main">
+            <span class="row-name">${esc(item.name)}${item.quantity > 1 ? `<span class="qty">×${item.quantity}</span>` : ''}</span>
+            <span class="row-meta">
+              ${esc(compartmentPath(state.layout, item.compartmentId))}・${CATEGORY_LABELS[item.category]}
+              ${badges}
+            </span>
           </span>
-        </span>
-        <span class="row-side">
-          <span class="row-days">${remainingLabel(u.days)}</span>
-          <span class="row-date">${u.date ? formatDate(u.date) : '—'}</span>
-        </span>
-      </button>`;
+          <span class="row-side">
+            <span class="row-days">${remainingLabel(u.days)}</span>
+            <span class="row-date">${u.date ? formatDate(u.date) : '—'}</span>
+          </span>
+        </div>
+      </div>`;
+  }
+
+  /* --- 買い物リスト ------------------------------------------------------ */
+
+  function shoppingPane() {
+    const rows = state.shopping.map((entry) => `
+      <label class="buy-row${entry.done ? ' is-done' : ''}">
+        <input type="checkbox" data-buy-toggle="${entry.id}" ${entry.done ? 'checked' : ''}>
+        <span>${esc(entry.name)}</span>
+        <button class="buy-remove" type="button" data-buy-remove="${entry.id}" aria-label="${esc(entry.name)}を消す">✕</button>
+      </label>`).join('');
+
+    return `
+      <section class="buy">
+        <form class="buy-add" id="buy-form">
+          <input type="text" id="buy-input" placeholder="買うものを足す" autocomplete="off">
+          <button class="btn btn-primary" type="submit">追加</button>
+        </form>
+        ${state.shopping.length === 0
+          ? '<p class="buy-empty">買うものを書いておくと、まとめて家族へ送れます。</p>'
+          : `<div class="buy-list">${rows}</div>`}
+        <div class="buy-actions">
+          <button class="btn btn-ghost" type="button" id="share-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
+            買い物リストを送る
+          </button>
+          <button class="btn btn-ghost" type="button" id="clear-bought" ${state.shopping.some((e) => e.done) ? '' : 'disabled'}>
+            買ったものを消す
+          </button>
+        </div>
+
+        <div class="buy-share">
+          <h3>家族に送る</h3>
+          <p>LINE やメールなど、ふだん使っているもので送れます。送り先はこの端末が選ぶので、
+             アプリが外部へデータを預けることはありません。</p>
+          <button class="btn btn-ghost" type="button" id="share-fridge">冷蔵庫の様子を送る</button>
+        </div>
+      </section>`;
+  }
+
+  /* --- 共有 --------------------------------------------------------------- */
+
+  /**
+   * 家族への共有は、自前のサーバーを持たずに OS の共有シートへ投げて済ませる。
+   * LINE でもメールでも、相手がふだん使っているもので届く。
+   *
+   * 共有シートもクリップボードも、埋め込み先の制約で使えないことがある。
+   * どちらも駄目なときのために、本文をそのまま見せる逃げ道を最後に置いてある。
+   */
+  async function shareText(title, text) {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text });
+        return;
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('コピーしました。貼り付けて送ってください');
+      return;
+    } catch (error) {
+      showShareFallback(text);
+    }
+  }
+
+  function fridgeShareText(today) {
+    const urgent = state.items
+      .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
+      .filter((x) => x.u.days !== null && x.u.days <= ALERT_THRESHOLD_DAYS)
+      .sort((a, b) => a.u.days - b.u.days);
+
+    const lines = [`冷蔵庫の様子（${formatDate(today)}）`, ''];
+    if (urgent.length === 0) {
+      lines.push('急いで使い切るものはありません。');
+    } else {
+      lines.push('早めに使い切りたいもの');
+      urgent.forEach((x) => {
+        lines.push(`・${x.item.name}（${remainingLabel(x.u.days)}${x.u.estimated ? '／目安' : ''}）`);
+      });
+    }
+    lines.push('', `在庫 ${state.items.length} 件`);
+    return lines.join('\n');
+  }
+
+  function shoppingShareText() {
+    const pending = state.shopping.filter((entry) => !entry.done);
+    return ['買い物リスト', '', ...pending.map((entry) => `・${entry.name}`)].join('\n');
+  }
+
+  function showShareFallback(text) {
+    const area = shareDialog.querySelector('#share-text');
+    area.value = text;
+    shareDialog.showModal();
+    area.select();
+  }
+
+  function toast(message) {
+    const bar = document.getElementById('undo-bar');
+    bar.querySelector('.undo-text').textContent = message;
+    bar.querySelector('.undo-button').hidden = true;
+    bar.hidden = false;
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => {
+      bar.hidden = true;
+      bar.querySelector('.undo-button').hidden = false;
+    }, 4000);
   }
 
   /* --- 共通パーツ ------------------------------------------------------- */
@@ -225,12 +373,63 @@
       });
     });
 
-    root.querySelectorAll('.row').forEach((el) => {
-      el.addEventListener('click', () => openEditor(el.dataset.id));
-    });
+    root.querySelectorAll('.row-wrap').forEach(attachSwipe);
 
     const addButton = root.querySelector('#add-item');
     if (addButton) addButton.addEventListener('click', () => openEditor(null));
+
+    const settingsButton = root.querySelector('#open-settings');
+    if (settingsButton) settingsButton.addEventListener('click', openSettings);
+
+    const buyForm = root.querySelector('#buy-form');
+    if (buyForm) {
+      buyForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const input = root.querySelector('#buy-input');
+        const name = input.value.trim();
+        if (!name) return;
+        state.shopping.push({ id: newId('buy'), name, done: false });
+        input.value = '';
+        saveState(state);
+        render();
+      });
+    }
+
+    root.querySelectorAll('[data-buy-toggle]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const entry = state.shopping.find((e) => e.id === el.dataset.buyToggle);
+        entry.done = el.checked;
+        saveState(state);
+        render();
+      });
+    });
+
+    root.querySelectorAll('[data-buy-remove]').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.shopping = state.shopping.filter((e) => e.id !== el.dataset.buyRemove);
+        saveState(state);
+        render();
+      });
+    });
+
+    const shareShopping = root.querySelector('#share-shopping');
+    if (shareShopping) {
+      shareShopping.addEventListener('click', () => shareText('買い物リスト', shoppingShareText()));
+    }
+
+    const clearBought = root.querySelector('#clear-bought');
+    if (clearBought) {
+      clearBought.addEventListener('click', () => {
+        state.shopping = state.shopping.filter((e) => !e.done);
+        saveState(state);
+        render();
+      });
+    }
+
+    const shareFridge = root.querySelector('#share-fridge');
+    if (shareFridge) {
+      shareFridge.addEventListener('click', () => shareText('冷蔵庫の様子', fridgeShareText(today)));
+    }
 
     const clear = root.querySelector('#clear-sample');
     if (clear) {
@@ -249,7 +448,7 @@
         kindFor,
         today,
         onMove: moveItem,
-        onOpenItem: openEditor,
+        onOpenItem: openActions,
         onRedraw: render,
         onLayout: applyLayout,
         onSelect: select,
@@ -264,6 +463,17 @@
   function commit() {
     saveState(state);
     render();
+    showUndo();
+  }
+
+  function buildUndoBar() {
+    const el = document.createElement('div');
+    el.id = 'undo-bar';
+    el.className = 'undo-bar';
+    el.hidden = true;
+    el.innerHTML = '<span class="undo-text"></span><button type="button" class="undo-button">取り消す</button>';
+    el.querySelector('.undo-button').addEventListener('click', undo);
+    return el;
   }
 
   function firstCompartmentId() {
@@ -392,6 +602,320 @@
 
     confirmDialog.showModal();
     confirmDialog.querySelector('#confirm-cancel').focus();
+  }
+
+  /* --- スワイプ --------------------------------------------------------- */
+
+  /* 指を離した時点でどの操作になるかの境目 */
+  const SWIPE_ACT = 76;
+  const SWIPE_DEEP = 168;
+
+  /**
+   * 右へ引けば「食べた」、左へ引けば「食べきった」、さらに引き切ると「捨てた」。
+   * 捨てるのは取り消しの効かない記録なので、浅い操作では起きないようにしてある。
+   */
+  function attachSwipe(wrap) {
+    const rowEl = wrap.querySelector('.row');
+    const offLabel = wrap.querySelector('.behind-off');
+    const id = wrap.dataset.id;
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let tracking = false;
+    let swiping = false;
+
+    const modeOf = (value) => {
+      if (value >= SWIPE_ACT) return 'eat';
+      if (value <= -SWIPE_DEEP) return 'discard';
+      if (value <= -SWIPE_ACT) return 'finish';
+      return '';
+    };
+
+    const paint = () => {
+      const mode = modeOf(dx);
+      wrap.dataset.mode = mode;
+      offLabel.textContent = mode === 'discard' ? '捨てた' : '食べきった';
+      rowEl.style.transform = `translateX(${dx}px)`;
+    };
+
+    const reset = () => {
+      wrap.dataset.mode = '';
+      rowEl.style.transform = '';
+      dx = 0;
+      tracking = false;
+      swiping = false;
+    };
+
+    wrap.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      dx = 0;
+      tracking = true;
+      swiping = false;
+    });
+
+    wrap.addEventListener('pointermove', (event) => {
+      if (!tracking) return;
+      const moveX = event.clientX - startX;
+      const moveY = event.clientY - startY;
+
+      if (!swiping) {
+        if (Math.abs(moveX) < 10 && Math.abs(moveY) < 10) return;
+        /* 縦に動かしているなら画面のスクロールに譲る */
+        if (Math.abs(moveY) >= Math.abs(moveX)) {
+          tracking = false;
+          return;
+        }
+        swiping = true;
+        wrap.setPointerCapture(event.pointerId);
+      }
+
+      event.preventDefault();
+      dx = moveX;
+      paint();
+    });
+
+    wrap.addEventListener('pointerup', () => {
+      if (!tracking) return;
+      const mode = modeOf(dx);
+      const wasSwiping = swiping;
+      reset();
+
+      if (!wasSwiping) {
+        openActions(id);
+        return;
+      }
+      if (mode === 'eat') eatOne(id);
+      else if (mode === 'finish') eatAll(id);
+      else if (mode === 'discard') discardItem(id);
+    });
+
+    wrap.addEventListener('pointercancel', reset);
+  }
+
+  /* --- 消費と廃棄 ------------------------------------------------------- */
+
+  function findItem(id) {
+    return state.items.find((i) => i.id === id);
+  }
+
+  function logConsumption(item, type, quantity) {
+    state.logs.push({
+      id: newId('log'),
+      name: item.name,
+      category: item.category,
+      type,
+      quantity,
+      date: todayIso(),
+    });
+  }
+
+  function eatOne(id) {
+    const item = findItem(id);
+    if (!item) return;
+    snapshot(`${item.name}を1つ「食べた」にしました`);
+
+    logConsumption(item, 'EATEN', 1);
+    item.quantity -= 1;
+    if (item.quantity <= 0) state.items = state.items.filter((i) => i.id !== id);
+    commit();
+  }
+
+  function eatAll(id) {
+    const item = findItem(id);
+    if (!item) return;
+    snapshot(`${item.name}を「食べきった」にしました`);
+
+    logConsumption(item, 'EATEN', item.quantity);
+    state.items = state.items.filter((i) => i.id !== id);
+    commit();
+  }
+
+  function discardItem(id) {
+    const item = findItem(id);
+    if (!item) return;
+    snapshot(`${item.name}を「捨てた」にしました`);
+
+    /* 捨てた瞬間にストリークが0へ戻るので、その前に最高記録を確定させる */
+    state.bestStreak = Math.max(state.bestStreak, streakDays(state.logs, state.startedAt, todayIso()));
+    logConsumption(item, 'DISCARDED', item.quantity);
+    state.items = state.items.filter((i) => i.id !== id);
+    commit();
+  }
+
+  /* --- 取り消し --------------------------------------------------------- */
+
+  let undoState = null;
+  let undoPending = false;
+  let undoTimer = null;
+
+  /** 誤タップ・誤スワイプの取り返しがつくよう、操作前の状態をまるごと控えておく */
+  function snapshot(message) {
+    undoPending = true;
+    undoState = {
+      message,
+      items: JSON.parse(JSON.stringify(state.items)),
+      logs: JSON.parse(JSON.stringify(state.logs)),
+      bestStreak: state.bestStreak,
+    };
+  }
+
+  function showUndo() {
+    if (!undoPending || !undoState) return;
+    undoPending = false;
+    const bar = document.getElementById('undo-bar');
+    bar.querySelector('.undo-text').textContent = undoState.message;
+    bar.hidden = false;
+
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => {
+      bar.hidden = true;
+      undoState = null;
+    }, 6000);
+  }
+
+  function undo() {
+    if (!undoState) return;
+    state.items = undoState.items;
+    state.logs = undoState.logs;
+    state.bestStreak = undoState.bestStreak;
+    undoState = null;
+    clearTimeout(undoTimer);
+    document.getElementById('undo-bar').hidden = true;
+    saveState(state);
+    render();
+  }
+
+  /* --- アクション ------------------------------------------------------- */
+
+  function buildActionDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'actions';
+    el.innerHTML = `
+      <div class="sheet-form action-form">
+        <h2 id="action-title"></h2>
+        <p id="action-sub"></p>
+        <button class="action-btn" type="button" data-act="eat">食べた<span>1つ減らす</span></button>
+        <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
+        <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
+        <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
+        <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
+      </div>`;
+
+    el.querySelectorAll('[data-act]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = el.dataset.itemId;
+        el.close();
+        if (button.dataset.act === 'eat') eatOne(id);
+        else if (button.dataset.act === 'finish') eatAll(id);
+        else if (button.dataset.act === 'discard') discardItem(id);
+        else if (button.dataset.act === 'edit') openEditor(id);
+      });
+    });
+    return el;
+  }
+
+  function openActions(id) {
+    const item = findItem(id);
+    if (!item) return;
+    const u = urgencyOf(item, kindFor(item), todayIso());
+
+    actionDialog.dataset.itemId = id;
+    actionDialog.querySelector('#action-title').textContent =
+      item.quantity > 1 ? `${item.name}（${item.quantity}）` : item.name;
+    actionDialog.querySelector('#action-sub').textContent =
+      `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`;
+    actionDialog.querySelector('[data-act="eat"]').hidden = item.quantity <= 1;
+    actionDialog.showModal();
+  }
+
+  /* --- 設定 --------------------------------------------------------------- */
+
+  function buildShareDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'share-fallback';
+    el.innerHTML = `
+      <div class="sheet-form">
+        <div class="form-head"><h2>送る文面</h2></div>
+        <p class="hint">この端末では共有シートを開けませんでした。下の文面を選んでコピーし、
+           送りたいアプリに貼り付けてください。</p>
+        <textarea id="share-text" rows="9" readonly></textarea>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" data-close>閉じる</button>
+        </div>
+      </div>`;
+    el.querySelector('[data-close]').addEventListener('click', () => el.close());
+    return el;
+  }
+
+  function buildSettingsDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'settings';
+    el.innerHTML = `
+      <div class="sheet-form">
+        <div class="form-head">
+          <h2>設定</h2>
+          <button class="icon-btn" type="button" data-close aria-label="閉じる">×</button>
+        </div>
+
+        <section class="settings-block">
+          <h3>AI での入力補助</h3>
+          <p class="warn">
+            このアプリは端末内で完結し、データを外へ出しません。
+            AI を有効にすると、入力した食品名が下の接続先へ送られます。
+            既定は無効で、有効にしない限り通信は起きません。
+          </p>
+
+          <label class="check-row">
+            <input type="checkbox" id="ai-enabled">
+            <span>AI を有効にする</span>
+          </label>
+
+          <div class="field">
+            <label for="ai-endpoint">接続先</label>
+            <input id="ai-endpoint" type="url" placeholder="https://..." autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-model">モデル</label>
+            <input id="ai-model" type="text" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-key">APIキー</label>
+            <input id="ai-key" type="password" autocomplete="off">
+          </div>
+          <p class="hint" id="ai-status"></p>
+        </section>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" data-save>保存する</button>
+        </div>
+      </div>`;
+
+    el.querySelector('[data-close]').addEventListener('click', () => el.close());
+    el.querySelector('[data-save]').addEventListener('click', () => {
+      AiAssist.saveSettings({
+        enabled: el.querySelector('#ai-enabled').checked,
+        endpoint: el.querySelector('#ai-endpoint').value.trim(),
+        model: el.querySelector('#ai-model').value.trim(),
+        apiKey: el.querySelector('#ai-key').value,
+      });
+      el.close();
+      toast('設定を保存しました');
+    });
+    return el;
+  }
+
+  function openSettings() {
+    const settings = AiAssist.loadSettings();
+    settingsDialog.querySelector('#ai-enabled').checked = settings.enabled;
+    settingsDialog.querySelector('#ai-endpoint').value = settings.endpoint;
+    settingsDialog.querySelector('#ai-model').value = settings.model;
+    settingsDialog.querySelector('#ai-key').value = settings.apiKey;
+    settingsDialog.querySelector('#ai-status').textContent = AiAssist.isReady()
+      ? '設定は揃っています。ただし通信部分はまだ実装されていないため、動作しません。'
+      : '未設定です。';
+    settingsDialog.showModal();
   }
 
   /* --- 入力ダイアログ --------------------------------------------------- */
