@@ -11,8 +11,10 @@ const LEGACY_KEY = 'fridgekeeper.state.v1';
  * 段の名前・形・幅・大きさ・数はユーザーが自由に変えられるが、期限の目安に効くのは kind だけ。
  * 見た目の自由度と、日持ちの計算とを切り離しておくための構造。
  *
- * form  段の見た目。SHELF=棚 / DRAWER=引き出し / POCKET=ドアポケット
- * span  2=全幅 / 1=半分（隣の半幅の段と横に並ぶ。製氷室と小さな冷凍室のような並び）
+ * form   段の見た目。SHELF=棚 / DRAWER=引き出し / POCKET=ドアポケット
+ * width  幅の割合(%)。合計が100を超えたところで次の行へ折り返す
+ * height 高さ(px)
+ * color  庫内の色。null なら既定
  *
  * 初期値は日本の家庭用冷蔵庫によくある構成に寄せてある。
  */
@@ -22,29 +24,58 @@ function defaultLayout() {
       id: 'unit-fridge',
       name: '冷蔵庫',
       type: 'FRIDGE',
+      color: null,
       compartments: [
-        { id: 'c-door', name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', span: 2, size: 1 },
-        { id: 'c-upper', name: '上段', kind: 'FRIDGE', form: 'SHELF', span: 2, size: 2 },
-        { id: 'c-middle', name: '中段', kind: 'FRIDGE', form: 'SHELF', span: 2, size: 2 },
-        { id: 'c-chilled', name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', span: 2, size: 1 },
-        { id: 'c-ice', name: '製氷室', kind: 'FREEZER', form: 'DRAWER', span: 1, size: 1 },
-        { id: 'c-freezer-s', name: '小さな冷凍室', kind: 'FREEZER', form: 'DRAWER', span: 1, size: 1 },
-        { id: 'c-veg', name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', span: 2, size: 2 },
-        { id: 'c-freezer', name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', span: 2, size: 2 },
+        comp('c-door', 'ドアポケット', 'FRIDGE', 'POCKET', 100, 52),
+        comp('c-upper', '上段', 'FRIDGE', 'SHELF', 100, 68),
+        comp('c-middle', '中段', 'FRIDGE', 'SHELF', 100, 68),
+        comp('c-chilled', 'チルド室', 'FRIDGE', 'DRAWER', 100, 52),
+        comp('c-ice', '製氷室', 'FREEZER', 'DRAWER', 50, 52),
+        comp('c-freezer-s', '小さな冷凍室', 'FREEZER', 'DRAWER', 50, 52),
+        comp('c-veg', '野菜室', 'VEGETABLE_DRAWER', 'DRAWER', 100, 76),
+        comp('c-freezer', '冷凍室', 'FREEZER', 'DRAWER', 100, 76),
       ],
     },
     {
       id: 'unit-pantry',
       name: '常温の棚',
       type: 'SHELF',
+      color: null,
       compartments: [
-        { id: 'c-pantry', name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', span: 2, size: 2 },
+        comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
       ],
     },
   ];
 }
 
+function comp(id, name, kind, form, width, height) {
+  return { id, name, kind, form, width, height, color: null };
+}
+
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
+
+/* 調整できる範囲。ここを外れると図として破綻するので端で止める */
+const WIDTH_MIN = 20;
+const WIDTH_MAX = 100;
+const HEIGHT_MIN = 36;
+const HEIGHT_MAX = 220;
+
+/**
+ * 筐体と庫内に使える色。
+ * 期限の警告に使う赤・橙・黄はここに入れない。庫内をその色にできてしまうと、
+ * 期限切れの食材が背景に紛れて見落とされる（仕様書8.2）。
+ */
+const CASE_COLORS = [
+  { value: null, label: '既定' },
+  { value: '#d8e4eb', label: 'ステンレス' },
+  { value: '#f4f6f7', label: 'ホワイト' },
+  { value: '#93a0aa', label: 'グレー' },
+  { value: '#2f3a42', label: 'チャコール' },
+  { value: '#26405c', label: 'ネイビー' },
+  { value: '#3f6b63', label: 'ディープグリーン' },
+  { value: '#e8ddcc', label: 'ベージュ' },
+  { value: '#c0a98f', label: 'ウッド' },
+];
 
 /** 形を指定せずに作られた段に、種類から素直な形をあてがう */
 function defaultFormFor(kind) {
@@ -83,7 +114,11 @@ function saveState(state) {
   }
 }
 
-/** 形・幅が無かった頃の保存データにも既定値を補い、古い状態のまま描画されないようにする */
+/**
+ * 古い保存データに新しい項目を補う。
+ * 幅と高さは段階指定（span 1|2 / size 1..4）から連続値へ変えたので、
+ * 元の見え方をなるべく保つ値に読み替える。
+ */
 function normalize(parsed) {
   const state = { ...emptyState(), ...parsed };
   if (!Array.isArray(state.layout) || state.layout.length === 0) {
@@ -92,12 +127,25 @@ function normalize(parsed) {
   }
   state.layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
+    if (unit.color === undefined) unit.color = null;
     unit.compartments.forEach((c) => {
       if (!c.form) c.form = defaultFormFor(c.kind);
-      if (!c.span) c.span = 2;
+      if (!c.width) c.width = c.span === 1 ? 50 : 100;
+      if (!c.height) c.height = 32 + (c.size || 2) * 18;
+      if (c.color === undefined) c.color = null;
+      delete c.span;
+      delete c.size;
     });
   });
   return state;
+}
+
+function clampWidth(value) {
+  return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(value)));
+}
+
+function clampHeight(value) {
+  return Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, Math.round(value)));
 }
 
 /** 収納が引き出し単位になる前の保存データを、種類が一致する最初の段へ移す */

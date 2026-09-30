@@ -11,13 +11,99 @@ const FridgeView = (function () {
   const EDGE_ZONE = 96;          /* 画面端のこの範囲に来たら自動スクロールする */
   const EDGE_SPEED = 14;
 
-  /* --- 構造の組み立て --------------------------------------------------- */
+  /* --- 色の派生 --------------------------------------------------------- */
+
+  function hexToRgb(hex) {
+    const v = hex.replace('#', '');
+    const n = parseInt(v.length === 3 ? v.split('').map((c) => c + c).join('') : v, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function rgbToHex(r, g, b) {
+    const to = (x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0');
+    return `#${to(r)}${to(g)}${to(b)}`;
+  }
+
+  /** 正なら白へ、負なら黒へ寄せる。一つの色から面ごとの明暗を作るために使う */
+  function shade(hex, amount) {
+    const { r, g, b } = hexToRgb(hex);
+    const target = amount > 0 ? 255 : 0;
+    const k = Math.abs(amount);
+    return rgbToHex(r + (target - r) * k, g + (target - g) * k, b + (target - b) * k);
+  }
 
   /**
-   * 段の並びを、扉ひとつ分と引き出しひとつ分の「区画」にまとめる。
+   * 背景に載せる文字色。
+   * 濃い色を選ばれても文字が読めなくなっては困るので、明るさから決める。
+   */
+  function inkFor(hex) {
+    const { r, g, b } = hexToRgb(hex);
+    const lin = (c) => {
+      const x = c / 255;
+      return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    };
+    const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return luminance > 0.42 ? '#12202a' : '#eef4f8';
+  }
+
+  function unitStyle(unit) {
+    if (!unit.color) return '';
+    return [
+      `--metal-1:${shade(unit.color, 0.34)}`,
+      `--metal-2:${unit.color}`,
+      `--metal-3:${shade(unit.color, -0.22)}`,
+      `--panel-1:${shade(unit.color, 0.4)}`,
+      `--panel-2:${shade(unit.color, 0.12)}`,
+    ].join(';');
+  }
+
+  /**
+   * 文字色の上書きは筐体の内側だけに閉じる。
+   * 収納名の見出しは筐体の外（ページの地）に載るので、
+   * ここまで明るい文字色を広げると濃い色を選んだ途端に見出しが読めなくなる。
+   */
+  function caseStyle(unit) {
+    if (!unit.color) return '';
+    const ink = inkFor(unit.color);
+    return `--ink-2:${ink};--ink-3:${ink}`;
+  }
+
+  function compStyle(compartment) {
+    const parts = [`--w:${compartment.width}`, `--h:${compartment.height}px`];
+    if (compartment.color) {
+      parts.push(`--cavity-1:${shade(compartment.color, -0.16)}`);
+      parts.push(`--cavity-2:${shade(compartment.color, 0.1)}`);
+      parts.push(`--ink-2:${inkFor(compartment.color)}`);
+      parts.push(`--ink-3:${inkFor(compartment.color)}`);
+    }
+    return parts.join(';');
+  }
+
+  /* --- 構造の組み立て --------------------------------------------------- */
+
+  /** 幅の合計が100%を超えたところで折り返す。段を横に並べられるようにするため */
+  function packRows(compartments) {
+    const rows = [];
+    let row = [];
+    let used = 0;
+
+    compartments.forEach((compartment) => {
+      if (row.length > 0 && used + compartment.width > 100) {
+        rows.push(row);
+        row = [];
+        used = 0;
+      }
+      row.push(compartment);
+      used += compartment.width;
+    });
+    if (row.length > 0) rows.push(row);
+    return rows;
+  }
+
+  /**
+   * 段の並びを、扉ひとつ分と引き出しひとつ分の区画にまとめる。
    * 実際の冷蔵庫は「棚が何段か入った扉」の下に「引き出しが積まれる」構造なので、
    * 連続する棚・ドアポケットを1枚の扉として束ね、引き出しはそれぞれ独立させる。
-   * 半幅の引き出しが連続したときは、製氷室と小さな冷凍室のように横へ並べる。
    */
   function sections(compartments) {
     const out = [];
@@ -32,14 +118,13 @@ const FridgeView = (function () {
         door.items.push(compartment);
         return;
       }
-
       door = null;
       const last = out[out.length - 1];
-      if (compartment.span === 1 && last && last.type === 'drawer' && last.half && last.items.length === 1) {
+      if (last && last.type === 'drawer') {
         last.items.push(compartment);
         return;
       }
-      out.push({ type: 'drawer', half: compartment.span === 1, items: [compartment] });
+      out.push({ type: 'drawer', items: [compartment] });
     });
 
     return out;
@@ -48,55 +133,42 @@ const FridgeView = (function () {
   /* --- 描画 ------------------------------------------------------------ */
 
   /**
-   * @param opts.editing   配置の編集モードか
-   * @param opts.kindFor   食材 → 収納の種類
-   * @param opts.today     'YYYY-MM-DD'
+   * @param opts.editing    配置の編集モードか
+   * @param opts.selection  編集中に選んでいる対象 {type:'comp'|'unit', id}
+   * @param opts.kindFor    食材 → 収納の種類
+   * @param opts.today      'YYYY-MM-DD'
    */
   function markup(state, opts) {
     const unplaced = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
     return `
-      ${opts.editing ? editorNotice() : ''}
+      ${opts.editing ? '<p class="notice">段をタップして選ぶと、下に調整が出ます。動かすと図がその場で変わります。</p>' : ''}
       <div class="stage">
         ${state.layout.map((unit) => unitMarkup(unit, state, opts)).join('')}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
       </div>
-      ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}`;
-  }
-
-  function editorNotice() {
-    return `<p class="notice">段の名前・形・幅・高さを変えられます。形を「引き出し」にすると独立した引き出しになり、幅を「半分」にすると隣の段と横に並びます。段を消すと、中の食材は「買ってきたもの」に戻ります。</p>`;
+      ${opts.editing ? settingsPanel(state, opts) : trayMarkup(unplaced, state, opts)}`;
   }
 
   function unitMarkup(unit, state, opts) {
-    const inner = opts.editing
-      ? unit.compartments.map((c, i) => compMarkup(c, unit, i, state, opts)).join('')
-      : sections(unit.compartments).map((section) => sectionMarkup(section, state, opts)).join('');
-
-    /* 天面と脚を描いて、正面を向いたまま「箱」であることを伝える。
-       中身を斜めにすると文字が読みにくくなるため、立体感は筐体の縁だけで出す。 */
-    const body = `
-      <div class="case">
-        ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
-        <div class="unit-body">
-          ${inner}
-          ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
-        </div>
-      </div>
-      ${unit.type === 'FRIDGE' ? '<span class="case-feet" aria-hidden="true"><i></i><i></i></span>' : ''}`;
-
+    const selected = opts.editing && opts.selection.type === 'unit' && opts.selection.id === unit.id;
     return `
-      <section class="unit" data-unit="${unit.id}" data-type="${unit.type}">
+      <section class="unit${selected ? ' is-selected' : ''}" data-unit="${unit.id}"
+               data-type="${unit.type}" style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
-            ? `<input class="unit-name-input" type="text" value="${esc(unit.name)}" data-unit-name="${unit.id}" aria-label="収納の名前">
-               <select class="unit-type-select" data-unit-type="${unit.id}" aria-label="収納の見た目">
-                 <option value="FRIDGE" ${unit.type === 'FRIDGE' ? 'selected' : ''}>冷蔵庫</option>
-                 <option value="SHELF" ${unit.type === 'SHELF' ? 'selected' : ''}>棚</option>
-               </select>
-               <button class="mini danger" type="button" data-del-unit="${unit.id}" aria-label="${esc(unit.name)}を削除">削除</button>`
+            ? `<button class="unit-pick" type="button" data-select-unit="${unit.id}">
+                 ${esc(unit.name)}<span>${selected ? '調整中' : 'タップで調整'}</span>
+               </button>`
             : `<span class="unit-name">${esc(unit.name)}</span>`}
         </header>
-        ${body}
+        <div class="case" style="${caseStyle(unit)}">
+          ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
+          <div class="unit-body">
+            ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts)).join('')}
+            ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
+          </div>
+        </div>
+        ${unit.type === 'FRIDGE' ? '<span class="case-feet" aria-hidden="true"><i></i><i></i></span>' : ''}
       </section>`;
   }
 
@@ -106,70 +178,43 @@ const FridgeView = (function () {
       return `
         <div class="door">
           <div class="door-inner">
-            ${section.items.map((c) => compMarkup(c, null, 0, state, opts)).join('')}
+            ${packRows(section.items).map((row) => rowMarkup(row, state, opts, false)).join('')}
           </div>
           <span class="door-handle" aria-hidden="true"></span>
         </div>`;
     }
-    return `
-      <div class="drawer${section.half ? ' is-split' : ''}">
-        ${section.items.map((c) => `
-          <div class="drawer-box">
-            ${compMarkup(c, null, 0, state, opts)}
-            <span class="drawer-pull" aria-hidden="true"></span>
-          </div>`).join('')}
-      </div>`;
+    return packRows(section.items).map((row) => rowMarkup(row, state, opts, true)).join('');
   }
 
-  function compMarkup(compartment, unit, index, state, opts) {
+  function rowMarkup(row, state, opts, asDrawer) {
+    const cells = row.map((compartment) => {
+      const cell = compMarkup(compartment, state, opts);
+      return asDrawer
+        ? `<div class="drawer-box" style="--w:${compartment.width}">
+             ${cell}<span class="drawer-pull" aria-hidden="true"></span>
+           </div>`
+        : cell;
+    }).join('');
+    return `<div class="${asDrawer ? 'drawer' : 'shelf-row'}">${cells}</div>`;
+  }
+
+  function compMarkup(compartment, state, opts) {
     const items = state.items.filter((i) => i.compartmentId === compartment.id);
-    const body = opts.editing
-      ? compControls(compartment, unit, index)
-      : `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>`;
+    const selected = opts.editing && opts.selection.type === 'comp' && opts.selection.id === compartment.id;
 
     return `
-      <section class="comp" data-kind="${compartment.kind}" data-form="${compartment.form}"
-               style="--size:${compartment.size}" ${opts.editing ? '' : `data-drop="${compartment.id}"`}>
-        ${opts.editing ? '' : `
+      <section class="comp${selected ? ' is-selected' : ''}" data-kind="${compartment.kind}"
+               data-form="${compartment.form}" style="${compStyle(compartment)}"
+               ${opts.editing ? `data-select="${compartment.id}"` : `data-drop="${compartment.id}"`}>
         <header class="comp-head">
           <span class="comp-name">${esc(compartment.name)}</span>
           <span class="comp-kind">${STORAGE_LABELS[compartment.kind]}</span>
           ${items.length > 0 ? `<span class="comp-count">${items.length}</span>` : ''}
-        </header>`}
-        ${body}
+        </header>
+        ${opts.editing
+          ? ''
+          : `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>`}
       </section>`;
-  }
-
-  function compControls(compartment, unit, index) {
-    const last = index === unit.compartments.length - 1;
-    return `
-      <div class="comp-edit">
-        <input class="comp-name-input" type="text" value="${esc(compartment.name)}"
-               data-comp-name="${compartment.id}" aria-label="段の名前">
-        <div class="comp-edit-grid">
-          <select data-comp-kind="${compartment.id}" aria-label="段の種類">
-            ${Object.entries(STORAGE_LABELS)
-              .map(([k, v]) => `<option value="${k}" ${k === compartment.kind ? 'selected' : ''}>${v}</option>`)
-              .join('')}
-          </select>
-          <select data-comp-form="${compartment.id}" aria-label="段の形">
-            ${Object.entries(FORM_LABELS)
-              .map(([k, v]) => `<option value="${k}" ${k === compartment.form ? 'selected' : ''}>${v}</option>`)
-              .join('')}
-          </select>
-        </div>
-        <div class="comp-edit-row">
-          <button class="mini" type="button" data-span="${compartment.id}" aria-pressed="${compartment.span === 1}">
-            ${compartment.span === 1 ? '半分' : '全幅'}
-          </button>
-          <button class="mini" type="button" data-size="${compartment.id}:-1" aria-label="高さを下げる">−</button>
-          <span class="mini-label">高さ ${compartment.size}</span>
-          <button class="mini" type="button" data-size="${compartment.id}:1" aria-label="高さを上げる">＋</button>
-          <button class="mini" type="button" data-move="${compartment.id}:-1" ${index === 0 ? 'disabled' : ''} aria-label="上へ">↑</button>
-          <button class="mini" type="button" data-move="${compartment.id}:1" ${last ? 'disabled' : ''} aria-label="下へ">↓</button>
-          <button class="mini danger" type="button" data-del-comp="${compartment.id}" aria-label="この段を削除">✕</button>
-        </div>
-      </div>`;
   }
 
   function trayMarkup(items, state, opts) {
@@ -196,62 +241,182 @@ const FridgeView = (function () {
       </button>`;
   }
 
-  /* --- 操作 ------------------------------------------------------------ */
+  /* --- 調整パネル ------------------------------------------------------- */
+
+  function settingsPanel(state, opts) {
+    if (opts.selection.type === 'unit') {
+      const unit = state.layout.find((u) => u.id === opts.selection.id);
+      if (unit) return unitSettings(unit);
+    }
+    const compartment = findCompartment(state.layout, opts.selection.id);
+    if (compartment) return compSettings(state, compartment);
+
+    return '<section class="settings settings-empty">段か収納をタップすると、ここで調整できます。</section>';
+  }
+
+  function unitSettings(unit) {
+    return `
+      <section class="settings">
+        <header class="settings-head">
+          <span>${esc(unit.name)}</span>
+          <button class="mini danger" type="button" data-del-unit="${unit.id}">削除</button>
+        </header>
+
+        <label class="field-row">
+          <span>名前</span>
+          <input type="text" value="${esc(unit.name)}" data-unit-name="${unit.id}">
+        </label>
+
+        <label class="field-row">
+          <span>見た目</span>
+          <select data-unit-type="${unit.id}">
+            <option value="FRIDGE" ${unit.type === 'FRIDGE' ? 'selected' : ''}>冷蔵庫</option>
+            <option value="SHELF" ${unit.type === 'SHELF' ? 'selected' : ''}>棚</option>
+          </select>
+        </label>
+
+        ${colorField(unit.color, `data-unit-color="${unit.id}"`, '本体の色')}
+      </section>`;
+  }
+
+  function compSettings(state, compartment) {
+    const unit = findUnitOf(state.layout, compartment.id);
+    const index = unit.compartments.findIndex((c) => c.id === compartment.id);
+    const last = index === unit.compartments.length - 1;
+
+    return `
+      <section class="settings">
+        <header class="settings-head">
+          <span>${esc(unit.name)} ${esc(compartment.name)}</span>
+          <button class="mini danger" type="button" data-del-comp="${compartment.id}">削除</button>
+        </header>
+
+        <label class="field-row">
+          <span>名前</span>
+          <input type="text" value="${esc(compartment.name)}" data-comp-name="${compartment.id}">
+        </label>
+
+        <div class="field-grid">
+          <label class="field-row">
+            <span>種類</span>
+            <select data-comp-kind="${compartment.id}">
+              ${Object.entries(STORAGE_LABELS)
+                .map(([k, v]) => `<option value="${k}" ${k === compartment.kind ? 'selected' : ''}>${v}</option>`)
+                .join('')}
+            </select>
+          </label>
+          <label class="field-row">
+            <span>形</span>
+            <select data-comp-form="${compartment.id}">
+              ${Object.entries(FORM_LABELS)
+                .map(([k, v]) => `<option value="${k}" ${k === compartment.form ? 'selected' : ''}>${v}</option>`)
+                .join('')}
+            </select>
+          </label>
+        </div>
+
+        ${slider('横幅', `${compartment.width}%`, compartment.width, WIDTH_MIN, WIDTH_MAX, 5,
+          `data-comp-width="${compartment.id}"`)}
+        ${slider('高さ', `${compartment.height}`, compartment.height, HEIGHT_MIN, HEIGHT_MAX, 2,
+          `data-comp-height="${compartment.id}"`)}
+
+        ${colorField(compartment.color, `data-comp-color="${compartment.id}"`, '庫内の色')}
+
+        <div class="field-row">
+          <span>並び</span>
+          <div class="order-buttons">
+            <button class="mini" type="button" data-move="${compartment.id}:-1" ${index === 0 ? 'disabled' : ''}>↑ 上へ</button>
+            <button class="mini" type="button" data-move="${compartment.id}:1" ${last ? 'disabled' : ''}>↓ 下へ</button>
+          </div>
+        </div>
+      </section>`;
+  }
+
+  function slider(label, valueLabel, value, min, max, step, attrs) {
+    return `
+      <div class="field-row slider-row">
+        <span>${label}</span>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${attrs}>
+        <output>${valueLabel}</output>
+      </div>`;
+  }
 
   /**
-   * @param opts.onMove(itemId, compartmentId|null)
-   * @param opts.onOpenItem(itemId)
-   * @param opts.onLayout(mutator)  state.layout を書き換える関数を渡して保存させる
+   * 色の選択。期限の警告に使う赤・橙・黄は選択肢に置かない。
+   * 庫内をその色にできると、期限切れの食材が背景に紛れてしまうため。
    */
+  function colorField(current, attrs, label) {
+    const swatches = CASE_COLORS.map((option) => {
+      const on = (option.value || null) === (current || null);
+      const style = option.value ? `background:${option.value}` : '';
+      return `<button class="swatch${on ? ' is-on' : ''}${option.value ? '' : ' swatch-none'}" type="button"
+                      style="${style}" title="${option.label}"
+                      ${attrs} data-color="${option.value || ''}">${option.value ? '' : '既定'}</button>`;
+    }).join('');
+
+    return `
+      <div class="field-row color-row">
+        <span>${label}</span>
+        <div class="swatches">${swatches}</div>
+      </div>`;
+  }
+
+  /* --- 操作 ------------------------------------------------------------ */
+
   function bind(root, state, opts) {
-    if (opts.editing) return bindEditor(root, opts);
+    if (opts.editing) return bindEditor(root, state, opts);
     root.querySelectorAll('.chip[data-item]').forEach((chipEl) => attachDrag(chipEl, opts));
   }
 
-  function bindEditor(root, opts) {
-    const onChange = (selector, handler) => {
-      root.querySelectorAll(selector).forEach((el) => el.addEventListener('change', () => handler(el)));
-    };
-    const onClick = (selector, handler) => {
-      root.querySelectorAll(selector).forEach((el) => el.addEventListener('click', () => handler(el)));
+  function bindEditor(root, state, opts) {
+    const on = (selector, event, handler) => {
+      root.querySelectorAll(selector).forEach((el) => el.addEventListener(event, () => handler(el)));
     };
 
-    /* 名前は入力のたびに再描画するとフォーカスを失うので、確定時だけ保存して描き直さない */
-    onChange('[data-comp-name]', (el) => {
+    on('[data-select]', 'click', (el) => opts.onSelect('comp', el.dataset.select));
+    on('[data-select-unit]', 'click', (el) => opts.onSelect('unit', el.dataset.selectUnit));
+
+    /* 名前は打つたびに描き直すと入力欄からフォーカスが外れるので、保存だけして描き直さない */
+    on('[data-comp-name]', 'change', (el) => {
       const name = el.value.trim() || '名称未設定';
       opts.onLayout((layout) => { findCompartment(layout, el.dataset.compName).name = name; }, true);
     });
-    onChange('[data-unit-name]', (el) => {
+    on('[data-unit-name]', 'change', (el) => {
       const name = el.value.trim() || '名称未設定';
       opts.onLayout((layout) => { layout.find((u) => u.id === el.dataset.unitName).name = name; }, true);
     });
 
-    onChange('[data-comp-kind]', (el) => {
+    on('[data-comp-kind]', 'change', (el) => {
       opts.onLayout((layout) => { findCompartment(layout, el.dataset.compKind).kind = el.value; });
     });
-    onChange('[data-comp-form]', (el) => {
+    on('[data-comp-form]', 'change', (el) => {
       opts.onLayout((layout) => { findCompartment(layout, el.dataset.compForm).form = el.value; });
     });
-    onChange('[data-unit-type]', (el) => {
+    on('[data-unit-type]', 'change', (el) => {
       opts.onLayout((layout) => { layout.find((u) => u.id === el.dataset.unitType).type = el.value; });
     });
 
-    onClick('[data-span]', (el) => {
-      opts.onLayout((layout) => {
-        const c = findCompartment(layout, el.dataset.span);
-        c.span = c.span === 1 ? 2 : 1;
+    bindSlider(root, '[data-comp-width]', 'compWidth', clampWidth, (c, v) => { c.width = v; },
+      (el, v) => { el.style.setProperty('--w', v); }, (v) => `${v}%`, opts);
+    bindSlider(root, '[data-comp-height]', 'compHeight', clampHeight, (c, v) => { c.height = v; },
+      (el, v) => { el.style.setProperty('--h', `${v}px`); }, (v) => `${v}`, opts);
+
+    root.querySelectorAll('[data-comp-color]').forEach((el) => {
+      el.addEventListener('click', () => {
+        opts.onLayout((layout) => {
+          findCompartment(layout, el.dataset.compColor).color = el.dataset.color || null;
+        });
+      });
+    });
+    root.querySelectorAll('[data-unit-color]').forEach((el) => {
+      el.addEventListener('click', () => {
+        opts.onLayout((layout) => {
+          layout.find((u) => u.id === el.dataset.unitColor).color = el.dataset.color || null;
+        });
       });
     });
 
-    onClick('[data-size]', (el) => {
-      const [id, delta] = el.dataset.size.split(':');
-      opts.onLayout((layout) => {
-        const c = findCompartment(layout, id);
-        c.size = Math.min(4, Math.max(1, c.size + Number(delta)));
-      });
-    });
-
-    onClick('[data-move]', (el) => {
+    on('[data-move]', 'click', (el) => {
       const [id, delta] = el.dataset.move.split(':');
       opts.onLayout((layout) => {
         const unit = findUnitOf(layout, id);
@@ -261,25 +426,33 @@ const FridgeView = (function () {
       });
     });
 
-    onClick('[data-del-comp]', (el) => opts.onDeleteCompartment(el.dataset.delComp));
-    onClick('[data-del-unit]', (el) => opts.onDeleteUnit(el.dataset.delUnit));
+    on('[data-del-comp]', 'click', (el) => opts.onDeleteCompartment(el.dataset.delComp));
+    on('[data-del-unit]', 'click', (el) => opts.onDeleteUnit(el.dataset.delUnit));
+    on('[data-add-comp]', 'click', (el) => opts.onAddCompartment(el.dataset.addComp));
+    on('[data-add-unit]', 'click', () => opts.onAddUnit());
+  }
 
-    onClick('[data-add-comp]', (el) => {
-      opts.onLayout((layout) => {
-        const unit = layout.find((u) => u.id === el.dataset.addComp);
-        unit.compartments.push({ id: newId('c'), name: '新しい段', kind: 'FRIDGE', form: 'SHELF', span: 2, size: 2 });
-      });
-    });
+  /**
+   * スライダーを動かしている間は描き直さず、図の該当箇所の寸法だけ直接書き換える。
+   * 毎回描き直すとつまみから指が外れてしまい、細かい調整ができない。
+   */
+  function bindSlider(root, selector, datasetKey, clamp, apply, paint, format, opts) {
+    root.querySelectorAll(selector).forEach((el) => {
+      const id = el.dataset[datasetKey];
+      const output = el.parentElement.querySelector('output');
+      const target = root.querySelector(`.comp[data-select="${id}"]`);
+      const box = target ? target.closest('.drawer-box') : null;
 
-    onClick('[data-add-unit]', () => {
-      opts.onLayout((layout) => {
-        layout.push({
-          id: newId('unit'),
-          name: '新しい収納',
-          type: 'SHELF',
-          compartments: [{ id: newId('c'), name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', span: 2, size: 2 }],
-        });
+      el.addEventListener('input', () => {
+        const value = clamp(Number(el.value));
+        if (output) output.textContent = format(value);
+        if (target) paint(target, value);
+        if (box && datasetKey === 'compWidth') box.style.setProperty('--w', value);
+        opts.onLayout((layout) => apply(findCompartment(layout, id), value), true);
       });
+
+      /* 指を離した時点で描き直し、折り返しなど全体の組み直しを反映する */
+      el.addEventListener('change', () => opts.onRedraw());
     });
   }
 

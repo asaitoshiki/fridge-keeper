@@ -715,10 +715,15 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 /* --- 庫内 --------------------------------------------------------------- */
 /* 前板より奥にあることを、落ち込んだ影と暗い面で示す */
 
+.shelf-row, .drawer { display: flex; gap: 6px; align-items: stretch; }
+.shelf-row > .comp { flex: 0 1 calc(var(--w, 100) * 1% - 5px); }
+.drawer > .drawer-box { flex: 0 1 calc(var(--w, 100) * 1% - 5px); }
+.drawer-box > .comp { flex: 1 1 auto; width: 100%; }
+
 .comp {
-  --size: 2;
   position: relative;
-  min-height: calc(32px + var(--size) * 17px);
+  min-width: 0;
+  min-height: var(--h, 68px);
   border-radius: 6px;
   padding: 5px 7px 7px;
   display: flex;
@@ -786,6 +791,10 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 }
 
 .comp-items { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; flex: 1; }
+
+/* 調整中の対象。図のどこをいじっているのか分かるようにする */
+.comp.is-selected { box-shadow: inset 0 0 0 2px var(--accent), inset 0 7px 11px -7px var(--ao); }
+.unit.is-selected .case { box-shadow: inset 0 1px 0 var(--metal-1), 0 0 0 2px var(--accent); }
 
 /* ドラッグ中の受け皿。どこに落ちるかを迷わせない */
 [data-drop].is-over {
@@ -996,4 +1005,116 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
   /* ダイアログは最前面レイヤーに出るため枠では切れない。枠幅に合わせて細くする */
   .sheet-form { width: min(348px, calc(100vw - 24px)); max-height: min(78vh, 700px); }
+}
+
+
+/* ===========================================================================
+   配置の調整
+   図を出したまま段をタップして選び、その場で寸法と色を動かす。
+   数値だけ見て決められるものではないので、結果が見えていることを優先する。
+   =========================================================================== */
+
+.unit-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  border-radius: 6px;
+  min-height: 34px;
+}
+.unit-pick:hover { background: var(--surface-2); }
+.unit-pick span { font-size: 10.5px; font-weight: 400; color: var(--ink-3); }
+
+.settings {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+.settings-empty { color: var(--ink-3); font-size: 13px; text-align: center; padding: 26px 14px; }
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.field-row { display: flex; align-items: center; gap: 10px; }
+.field-row > span:first-child {
+  flex: 0 0 56px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+}
+.field-row input[type="text"],
+.field-row select {
+  flex: 1;
+  min-width: 0;
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+  min-height: 40px;
+}
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-grid .field-row > span:first-child { flex: 0 0 34px; }
+
+/* つまみは指で掴める大きさにする */
+.slider-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  accent-color: var(--accent);
+}
+.slider-row output {
+  flex: 0 0 46px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.color-row { align-items: flex-start; }
+.color-row > span:first-child { padding-top: 10px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+  padding: 0;
+}
+.swatch.is-on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.swatch-none {
+  width: auto;
+  padding: 0 10px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.order-buttons { display: flex; gap: 6px; flex: 1; }
+.order-buttons .mini { flex: 1; }
+
+@media (max-width: 400px) {
+  .field-grid { grid-template-columns: 1fr; }
 }

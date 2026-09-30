@@ -11,6 +11,8 @@
   let state = loadState();
   let view = 'fridge';
   let editingLayout = false;
+  /* 編集中に調整している対象。段か収納のどちらか */
+  let selection = { type: 'comp', id: null };
   let kindFilter = 'ALL';
   let editingId = null;
 
@@ -105,6 +107,7 @@
   function fridgePane(today) {
     return `<div id="fridge-pane">${FridgeView.markup(state, {
       editing: editingLayout,
+      selection,
       kindFor,
       today,
     })}</div>`;
@@ -209,6 +212,8 @@
     if (toggle) {
       toggle.addEventListener('click', () => {
         editingLayout = !editingLayout;
+        /* 編集に入ったら最初の段を選んでおく。何も選ばれていない画面は用が無い */
+        if (editingLayout) selection = { type: 'comp', id: firstCompartmentId() };
         render();
       });
     }
@@ -240,12 +245,16 @@
     if (pane) {
       FridgeView.bind(pane, state, {
         editing: editingLayout,
+        selection,
         kindFor,
         today,
         onMove: moveItem,
         onOpenItem: openEditor,
         onRedraw: render,
         onLayout: applyLayout,
+        onSelect: select,
+        onAddCompartment: addCompartment,
+        onAddUnit: addUnit,
         onDeleteCompartment: deleteCompartment,
         onDeleteUnit: deleteUnit,
       });
@@ -255,6 +264,47 @@
   function commit() {
     saveState(state);
     render();
+  }
+
+  function firstCompartmentId() {
+    const all = state.layout.flatMap((unit) => unit.compartments);
+    return all.length > 0 ? all[0].id : null;
+  }
+
+  function select(type, id) {
+    selection = { type, id };
+    render();
+  }
+
+  function addCompartment(unitId) {
+    const unit = state.layout.find((u) => u.id === unitId);
+    const created = {
+      id: newId('c'),
+      name: '新しい段',
+      kind: 'FRIDGE',
+      form: 'SHELF',
+      width: 100,
+      height: 68,
+      color: null,
+    };
+    unit.compartments.push(created);
+    selection = { type: 'comp', id: created.id };
+    commit();
+  }
+
+  function addUnit() {
+    const created = {
+      id: newId('unit'),
+      name: '新しい収納',
+      type: 'SHELF',
+      color: null,
+      compartments: [
+        { id: newId('c'), name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', width: 100, height: 68, color: null },
+      ],
+    };
+    state.layout.push(created);
+    selection = { type: 'unit', id: created.id };
+    commit();
   }
 
   /** 収納を移すと、期限を入力していない食材の目安日数も変わる */
@@ -278,6 +328,7 @@
       releaseItemsIn([compartmentId]);
       const unit = findUnitOf(state.layout, compartmentId);
       unit.compartments = unit.compartments.filter((c) => c.id !== compartmentId);
+      if (selection.id === compartmentId) selection = { type: 'comp', id: firstCompartmentId() };
       commit();
     });
   }
@@ -290,6 +341,7 @@
     askConfirm(`${unit.name}を丸ごと削除しますか`, inside > 0 ? `中の${inside}件は「買ってきたもの」に戻ります。` : '', () => {
       releaseItemsIn(ids);
       state.layout = state.layout.filter((u) => u.id !== unitId);
+      selection = { type: 'comp', id: firstCompartmentId() };
       commit();
     });
   }
