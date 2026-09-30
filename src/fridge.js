@@ -142,11 +142,12 @@ const FridgeView = (function () {
     const unplaced = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
     return `
       ${opts.editing ? '<p class="notice">段をタップして選ぶと、下に調整が出ます。動かすと図がその場で変わります。</p>' : ''}
+      ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}
       <div class="stage">
         ${state.layout.map((unit) => unitMarkup(unit, state, opts)).join('')}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
       </div>
-      ${opts.editing ? settingsPanel(state, opts) : trayMarkup(unplaced, state, opts)}`;
+      ${opts.editing ? settingsPanel(state, opts) : ''}`;
   }
 
   function unitMarkup(unit, state, opts) {

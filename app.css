@@ -178,7 +178,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 14px 16px calc(150px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 16px calc(210px + env(safe-area-inset-bottom, 0px));
 }
 
 /* --- ヘッダー ---------------------------------------------------------- */
@@ -656,7 +656,18 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
   padding: 10px 13px;
 }
 
-.stage { display: flex; flex-direction: column; gap: 16px; }
+/* 収納は横に並べる。全体を一度に見渡せるほうが、どこに入れるか迷わない。
+   段の高さはユーザーが決めた値をそのまま使わず、この倍率で縮めて描く。 */
+.stage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+  --scale: .68;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.stage > .unit-add { grid-column: 1 / -1; }
 
 /* --- 筐体（冷蔵庫・棚） ------------------------------------------------- */
 /* 正面は向けたまま、天面・稜線・影だけで立体を作る。
@@ -813,7 +824,7 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 .comp {
   position: relative;
   min-width: 0;
-  min-height: var(--h, 68px);
+  min-height: calc(var(--h, 68px) * var(--scale, 1));
   border-radius: 6px;
   padding: 5px 7px 7px;
   display: flex;
@@ -967,6 +978,8 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 .tray {
   border: 2px dashed var(--line-strong);
+  -webkit-user-select: none;
+  user-select: none;
   border-radius: 14px;
   background: var(--surface);
   padding: 10px 12px 12px;
@@ -1108,9 +1121,121 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   .appbar { padding-top: 46px; }
   /* ホームバーのぶん、タブバーを持ち上げる */
   .navbar { padding-bottom: 16px; }
-  .fab { right: 20px; bottom: 90px; }
-  .undo-bar { bottom: 158px; }
+  .quickbar { padding-bottom: 12px; bottom: 75px; }
+  .undo-bar { bottom: 206px; }
 
   /* ダイアログは最前面レイヤーに出るため枠では切れない。枠幅に合わせて細くする */
   .sheet-form { width: min(348px, calc(100vw - 24px)); max-height: min(78vh, 700px); }
 }
+
+
+/* ===========================================================================
+   横並びに縮めたときの詰め
+   =========================================================================== */
+
+.stage .unit[data-type="FRIDGE"] .case { margin-top: 12px; padding: 6px 6px 10px; border-radius: 7px; }
+.stage .case-top { top: -12px; height: 12px; clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 100%, 0 100%); }
+.stage .case-feet { height: 9px; }
+.stage .case-feet i { width: 20px; height: 6px; }
+.stage .case-feet i:first-child { left: 14px; }
+.stage .case-feet i:last-child { right: 14px; }
+
+.stage .unit-head { padding: 0 2px 6px; min-height: 26px; }
+.stage .unit-name { font-size: 11.5px; }
+
+.stage .door { padding: 6px 20px 7px 6px; border-radius: 7px; }
+.stage .door-inner { gap: 5px; }
+.stage .door-handle { right: 7px; top: 12px; bottom: 12px; width: 5px; }
+.stage .drawer-box { padding: 6px 6px 14px; border-radius: 7px; }
+.stage .drawer-pull { bottom: 5px; height: 6px; width: 46%; }
+.stage .unit-body { gap: 4px; }
+.stage .shelf-row, .stage .drawer { gap: 4px; }
+
+.stage .comp { padding: 3px 5px 5px; gap: 3px; border-radius: 5px; }
+.stage .comp[data-form="SHELF"] { padding-bottom: 9px; }
+.stage .comp[data-form="SHELF"]::after { height: 4px; }
+.stage .comp[data-form="POCKET"] { padding-bottom: 10px; }
+.stage .comp[data-form="POCKET"]::after { height: 7px; }
+.stage .comp-name { font-size: 10px; }
+.stage .comp-kind { display: none; }
+.stage .comp-count { font-size: 9.5px; }
+.stage .comp-items { gap: 3px; }
+
+/* 幅が狭いので、名前は削られても期限は必ず残るようにする */
+.stage .chip { min-height: 28px; padding: 4px 6px 4px 5px; gap: 4px; border-left-width: 3px; font-size: 11.5px; }
+.stage .chip-name { min-width: 0; }
+.stage .chip-name i { display: none; }
+.stage .chip-days { font-size: 10px; }
+.stage .chip-est { font-size: 8.5px; padding: 0 2px; }
+
+/* 一覧の幅が足りない画面では、無理に横へ並べない */
+@media (max-width: 330px) {
+  .stage { grid-template-columns: minmax(0, 1fr); --scale: .82; }
+}
+
+/* ===========================================================================
+   下部のクイック追加
+   =========================================================================== */
+
+.quickbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(59px + env(safe-area-inset-bottom, 0px));
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 12px 10px;
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+}
+
+.quick-templates {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quick-templates::-webkit-scrollbar { display: none; }
+.quick-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 0 13px;
+  min-height: 34px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-chip:hover { background: var(--surface-2); }
+.quick-chip::before { content: "＋"; margin-right: 4px; color: var(--accent); font-weight: 700; }
+
+.quick-add { display: flex; gap: 7px; }
+.quick-add input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 16px;
+  min-height: 46px;
+  font-size: 15px;
+}
+.quick-go, .quick-more {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  min-height: 46px;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.quick-go { background: var(--accent); color: var(--on-accent); }
+.quick-go:hover { filter: brightness(1.08); }
+.quick-more { background: transparent; border-color: var(--line-strong); color: var(--ink-2); font-weight: 500; padding: 0 14px; }
+.quick-more:hover { background: var(--surface-2); }

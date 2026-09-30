@@ -50,8 +50,8 @@
       paneFor(view, today),
       disclaimer(),
       '</main>',
+      quickBar(),
       navBar(),
-      fab(),
     ].join('');
     bind(today);
   }
@@ -357,13 +357,33 @@
       </section>`;
   }
 
-  function fab() {
-    if (editingLayout) return '';
+  /**
+   * 買ってきたものを次々に放り込むための入り口。
+   * 親指の届く下端に置き、よく買うものはタップだけで入るようにする。
+   * まず「買ってきたもの」に溜まり、どの段へ入れるかは後から図の上で決められる。
+   */
+  function quickBar() {
+    if (editingLayout || view === 'shopping') return '';
+
+    const names = templateNames();
+    const chips = names.map((name) =>
+      `<button class="quick-chip" type="button" data-quick="${esc(name)}">${esc(name)}</button>`).join('');
+
     return `
-      <button class="fab" type="button" id="add-item">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
-        食材を追加
-      </button>`;
+      <div class="quickbar">
+        ${names.length > 0 ? `<div class="quick-templates">${chips}</div>` : ''}
+        <form class="quick-add" id="quick-form">
+          <input type="text" id="quick-input" placeholder="買ってきたものを入れる" autocomplete="off">
+          <button class="quick-go" type="submit" aria-label="入れる">入れる</button>
+          <button class="quick-more" type="button" id="open-full" aria-label="詳しく入力">詳しく</button>
+        </form>
+      </div>`;
+  }
+
+  /** よく買うもの。履歴がなければ、いま入っているものから拾う */
+  function templateNames() {
+    if (state.templates.length > 0) return state.templates.slice(0, 6);
+    return [...new Set(state.items.map((item) => item.name))].slice(0, 6);
   }
 
   /* --- 操作 ------------------------------------------------------------ */
@@ -398,6 +418,25 @@
 
     const addButton = root.querySelector('#add-item');
     if (addButton) addButton.addEventListener('click', () => openEditor(null));
+
+    const quickForm = root.querySelector('#quick-form');
+    if (quickForm) {
+      quickForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const input = root.querySelector('#quick-input');
+        const name = input.value.trim();
+        if (!name) return;
+        input.value = '';
+        quickAdd(name);
+      });
+    }
+
+    root.querySelectorAll('[data-quick]').forEach((el) => {
+      el.addEventListener('click', () => quickAdd(el.dataset.quick));
+    });
+
+    const openFull = root.querySelector('#open-full');
+    if (openFull) openFull.addEventListener('click', () => openEditor(null));
 
     const settingsButton = root.querySelector('#open-settings');
     if (settingsButton) settingsButton.addEventListener('click', openSettings);
@@ -625,6 +664,34 @@
     confirmDialog.querySelector('#confirm-cancel').focus();
   }
 
+  /**
+   * 名前だけで登録する。
+   * 期限も置き場所も後から決められるようにして、レジ袋を空けながらでも
+   * 入力が止まらないようにする。カテゴリは名前から推すので指定もいらない。
+   */
+  function quickAdd(name) {
+    state.items.push({
+      id: newId('item'),
+      name,
+      category: guessCategoryByName(name),
+      compartmentId: null,
+      expiryType: 'BEST_BEFORE',
+      expiryDate: null,
+      quantity: 1,
+      registeredAt: todayIso(),
+      janCode: null,
+      memo: null,
+    });
+    rememberTemplate(name);
+    saveState(state);
+    render();
+    toast(`${name} を「買ってきたもの」に入れました`);
+  }
+
+  function rememberTemplate(name) {
+    state.templates = [name, ...state.templates.filter((n) => n !== name)].slice(0, 12);
+  }
+
   /* --- スワイプ --------------------------------------------------------- */
 
   /* 指を離した時点でどの操作になるかの境目 */
@@ -785,6 +852,7 @@
   function showUndo() {
     if (!undoPending || !undoState) return;
     undoPending = false;
+    document.getElementById('undo-bar').querySelector('.undo-button').hidden = false;
     const bar = document.getElementById('undo-bar');
     bar.querySelector('.undo-text').textContent = undoState.message;
     bar.hidden = false;
@@ -1093,6 +1161,7 @@
       Object.assign(existing, values);
     } else {
       state.items.push({ id: newId('item'), registeredAt: todayIso(), janCode: null, ...values });
+      rememberTemplate(values.name);
     }
 
     dialog.close();

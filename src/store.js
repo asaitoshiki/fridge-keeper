@@ -95,6 +95,8 @@ function emptyState() {
     bestStreak: 0,
     /* 買い物リスト。共有はOSの共有シートへ投げるだけで、サーバーは持たない */
     shopping: [],
+    /* よく買うもの。登録のたびに先頭へ積み、同じ名前は一つにまとめる */
+    templates: [],
     sampleLoaded: false,
   };
 }
@@ -139,6 +141,7 @@ function normalize(parsed) {
   }
   if (!Array.isArray(state.logs)) state.logs = [];
   if (!Array.isArray(state.shopping)) state.shopping = [];
+  if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   state.layout.forEach((unit) => {
