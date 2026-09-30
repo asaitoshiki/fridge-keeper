@@ -1239,3 +1239,73 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 .quick-go:hover { filter: brightness(1.08); }
 .quick-more { background: transparent; border-color: var(--line-strong); color: var(--ink-2); font-weight: 500; padding: 0 14px; }
 .quick-more:hover { background: var(--surface-2); }
+
+
+/* ===========================================================================
+   大きさのつまみ
+   段そのものの端を引いて広げ縮めする。数値を打つより、結果を見ながらのほうが早い。
+   =========================================================================== */
+
+.comp.is-selected { overflow: visible; }
+
+.grip {
+  position: absolute;
+  z-index: 6;
+  /* 指で掴める当たり判定を、細い見た目とは別に確保する */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.grip::after {
+  content: "";
+  display: block;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(10, 24, 32, .45);
+}
+
+.grip-w {
+  top: 0;
+  bottom: 0;
+  right: -14px;
+  width: 28px;
+  cursor: ew-resize;
+}
+.grip-w::after { width: 5px; height: 28px; }
+
+.grip-h {
+  left: 0;
+  right: 0;
+  bottom: -14px;
+  height: 28px;
+  cursor: ns-resize;
+}
+.grip-h::after { width: 34px; height: 5px; }
+
+.grip.is-held::after { background: var(--ink); transform: scale(1.15); }
+
+/* 引いている間の寸法。図から目を離さずに数値を確かめられるようにする */
+.size-tag {
+  position: absolute;
+  top: -10px;
+  left: 4px;
+  z-index: 7;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.7;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* つまみが枠に切られないよう、選択中だけ外へはみ出せるようにする */
+.stage .unit.has-selection .case,
+.stage .unit.has-selection .door,
+.stage .unit.has-selection .drawer-box { overflow: visible; }

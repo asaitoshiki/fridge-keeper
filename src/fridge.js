@@ -152,8 +152,12 @@ const FridgeView = (function () {
 
   function unitMarkup(unit, state, opts) {
     const selected = opts.editing && opts.selection.type === 'unit' && opts.selection.id === unit.id;
+    /* つまみが枠に切られないよう、選択中の段を抱える筐体には印を付けておく */
+    const holdsSelection = opts.editing && opts.selection.type === 'comp'
+      && unit.compartments.some((c) => c.id === opts.selection.id);
+
     return `
-      <section class="unit${selected ? ' is-selected' : ''}" data-unit="${unit.id}"
+      <section class="unit${selected ? ' is-selected' : ''}${holdsSelection ? ' has-selection' : ''}" data-unit="${unit.id}"
                data-type="${unit.type}" style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
@@ -215,7 +219,21 @@ const FridgeView = (function () {
         ${opts.editing
           ? ''
           : `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>`}
+        ${selected ? gripMarkup(compartment) : ''}
       </section>`;
+  }
+
+  /**
+   * 選んだ段だけに、右端と下端のつまみを出す。
+   * 全部の段に出すと図が握りだらけになり、押し間違える。
+   */
+  function gripMarkup(compartment) {
+    return `
+      <span class="size-tag" aria-hidden="true">${compartment.width}% × ${compartment.height}</span>
+      <span class="grip grip-w" data-grip="w:${compartment.id}" role="separator"
+            aria-label="横幅を変える" aria-orientation="vertical"></span>
+      <span class="grip grip-h" data-grip="h:${compartment.id}" role="separator"
+            aria-label="高さを変える" aria-orientation="horizontal"></span>`;
   }
 
   function trayMarkup(items, state, opts) {
@@ -316,10 +334,11 @@ const FridgeView = (function () {
           </label>
         </div>
 
-        ${slider('横幅', `${compartment.width}%`, compartment.width, WIDTH_MIN, WIDTH_MAX, 5,
-          `data-comp-width="${compartment.id}"`)}
-        ${slider('高さ', `${compartment.height}`, compartment.height, HEIGHT_MIN, HEIGHT_MAX, 2,
-          `data-comp-height="${compartment.id}"`)}
+        <div class="field-row">
+          <span>大きさ</span>
+          <p class="size-hint">図の中の<b>右端</b>と<b>下端</b>のつまみを引いて変えられます。
+             いまは <b>${compartment.width}%</b> × <b>${compartment.height}</b>。</p>
+        </div>
 
         ${colorField(compartment.color, `data-comp-color="${compartment.id}"`, '庫内の色')}
 
@@ -331,15 +350,6 @@ const FridgeView = (function () {
           </div>
         </div>
       </section>`;
-  }
-
-  function slider(label, valueLabel, value, min, max, step, attrs) {
-    return `
-      <div class="field-row slider-row">
-        <span>${label}</span>
-        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${attrs}>
-        <output>${valueLabel}</output>
-      </div>`;
   }
 
   /**
@@ -397,10 +407,7 @@ const FridgeView = (function () {
       opts.onLayout((layout) => { layout.find((u) => u.id === el.dataset.unitType).type = el.value; });
     });
 
-    bindSlider(root, '[data-comp-width]', 'compWidth', clampWidth, (c, v) => { c.width = v; },
-      (el, v) => { el.style.setProperty('--w', v); }, (v) => `${v}%`, opts);
-    bindSlider(root, '[data-comp-height]', 'compHeight', clampHeight, (c, v) => { c.height = v; },
-      (el, v) => { el.style.setProperty('--h', `${v}px`); }, (v) => `${v}`, opts);
+    bindGrips(root, state, opts);
 
     root.querySelectorAll('[data-comp-color]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -434,26 +441,73 @@ const FridgeView = (function () {
   }
 
   /**
-   * スライダーを動かしている間は描き直さず、図の該当箇所の寸法だけ直接書き換える。
-   * 毎回描き直すとつまみから指が外れてしまい、細かい調整ができない。
+   * つまみを引いている間は描き直さず、図の該当箇所の寸法だけ直接書き換える。
+   * 毎回描き直すとつまみから指が外れてしまい、狙った大きさで止められない。
+   * 指を離した時点で描き直し、折り返しなど全体の組み直しを反映する。
    */
-  function bindSlider(root, selector, datasetKey, clamp, apply, paint, format, opts) {
-    root.querySelectorAll(selector).forEach((el) => {
-      const id = el.dataset[datasetKey];
-      const output = el.parentElement.querySelector('output');
-      const target = root.querySelector(`.comp[data-select="${id}"]`);
-      const box = target ? target.closest('.drawer-box') : null;
+  function bindGrips(root, state, opts) {
+    const stage = root.querySelector('.stage');
 
-      el.addEventListener('input', () => {
-        const value = clamp(Number(el.value));
-        if (output) output.textContent = format(value);
-        if (target) paint(target, value);
-        if (box && datasetKey === 'compWidth') box.style.setProperty('--w', value);
-        opts.onLayout((layout) => apply(findCompartment(layout, id), value), true);
+    root.querySelectorAll('[data-grip]').forEach((grip) => {
+      const [axis, id] = grip.dataset.grip.split(':');
+      let origin = 0;
+      let startValue = 0;
+      let rowWidth = 1;
+      let scale = 1;
+      let comp = null;
+      let box = null;
+      let tag = null;
+
+      grip.addEventListener('pointerdown', (event) => {
+        comp = root.querySelector(`.comp[data-select="${id}"]`);
+        if (!comp) return;
+
+        const compartment = findCompartment(state.layout, id);
+        box = comp.closest('.drawer-box');
+        tag = comp.querySelector('.size-tag');
+
+        /* 幅は割合なので、その段が載っている行の実寸を基準にする */
+        const row = comp.closest('.shelf-row, .drawer');
+        rowWidth = (row || comp).getBoundingClientRect().width || 1;
+        /* 高さは描画時に縮めてあるので、指の移動量をもとの尺度へ戻す */
+        scale = Number(getComputedStyle(stage).getPropertyValue('--scale')) || 1;
+
+        origin = axis === 'w' ? event.clientX : event.clientY;
+        startValue = axis === 'w' ? compartment.width : compartment.height;
+        grip.setPointerCapture(event.pointerId);
+        grip.classList.add('is-held');
+        event.preventDefault();
       });
 
-      /* 指を離した時点で描き直し、折り返しなど全体の組み直しを反映する */
-      el.addEventListener('change', () => opts.onRedraw());
+      grip.addEventListener('pointermove', (event) => {
+        if (!comp) return;
+        event.preventDefault();
+
+        if (axis === 'w') {
+          const next = clampWidth(startValue + ((event.clientX - origin) / rowWidth) * 100);
+          comp.style.setProperty('--w', next);
+          if (box) box.style.setProperty('--w', next);
+          opts.onLayout((layout) => { findCompartment(layout, id).width = next; }, true);
+        } else {
+          const next = clampHeight(startValue + (event.clientY - origin) / scale);
+          comp.style.setProperty('--h', `${next}px`);
+          opts.onLayout((layout) => { findCompartment(layout, id).height = next; }, true);
+        }
+
+        if (tag) {
+          const current = findCompartment(state.layout, id);
+          tag.textContent = `${current.width}% × ${current.height}`;
+        }
+      });
+
+      const release = () => {
+        if (!comp) return;
+        comp = null;
+        grip.classList.remove('is-held');
+        opts.onRedraw();
+      };
+      grip.addEventListener('pointerup', release);
+      grip.addEventListener('pointercancel', release);
     });
   }
 
