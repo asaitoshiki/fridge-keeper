@@ -5,11 +5,11 @@
 (function () {
   'use strict';
 
-  /* 何日前から「使い切りたい」として扱うか。仕様書6.6の既定値 */
-  const ALERT_THRESHOLD_DAYS = 3;
 
   let state = loadState();
   let view = 'fridge';
+  /* 冷蔵庫タブの中の見せ方。図と期限順は同じ在庫の別の見え方なので、タブは分けない */
+  let fridgeMode = 'figure';
   let editingLayout = false;
   /* 編集中に調整している対象。段か収納のどちらか */
   let selection = { type: 'comp', id: null };
@@ -19,19 +19,20 @@
   /* タブのアイコン。太さと大きさを揃えて、並べたときに粒が揃うようにしてある */
   const ICON_FRIDGE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M6 10h12"/><path d="M9 6.5v2"/><path d="M9 13v2.5"/></svg>';
   const ICON_LIST = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>';
+  const ICON_BELL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 1 0-12 0c0 4.5-1.8 6-1.8 6h15.6S18 13.5 18 9"/><path d="M10.3 18.5a2 2 0 0 0 3.4 0"/></svg>';
+  const ICON_REPORT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V5"/><path d="M5 19h15"/><path d="M9 16v-5"/><path d="M13.5 16V8"/><path d="M18 16v-3"/></svg>';
+  const ICON_GEAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M18 6l-1.4 1.4M7.4 16.6 6 18M18 18l-1.4-1.4M7.4 7.4 6 6"/></svg>';
   const ICON_CART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-1.6 9.2a2 2 0 0 1-2 1.8H7.6a2 2 0 0 1-2-1.8z"/><path d="M9 7V5.5A3 3 0 0 1 15 5.5V7"/></svg>';
 
   const root = document.getElementById('app');
   const dialog = buildDialog();
   const confirmDialog = buildConfirmDialog();
   const actionDialog = buildActionDialog();
-  const settingsDialog = buildSettingsDialog();
   const shareDialog = buildShareDialog();
   const undoBar = buildUndoBar();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
-  document.body.appendChild(settingsDialog);
   document.body.appendChild(shareDialog);
   document.body.appendChild(undoBar);
 
@@ -44,15 +45,18 @@
     root.innerHTML = [
       appBar(),
       '<main class="screen">',
-      summary(today),
-      streakBanner(today),
+      view === 'fridge' ? summary(today) : '',
+      view === 'fridge' ? streakBanner(today) : '',
       paneHead(),
       paneFor(view, today),
-      disclaimer(),
+      view === 'fridge' || view === 'notices' ? disclaimer() : '',
       '</main>',
       quickBar(),
       navBar(),
     ].join('');
+
+    /* 取り消しの帯を、クイック追加の有無に合わせた高さに出すための目印 */
+    document.body.dataset.quick = view === 'fridge' && !editingLayout ? '1' : '';
     bind(today);
   }
 
@@ -64,10 +68,7 @@
     return `
       <header class="appbar">
         <h1 class="wordmark">冷蔵庫<span>キーパー</span></h1>
-        <div class="appbar-side">
-          <span class="tally">${state.items.length}</span>
-          <button class="icon-btn" type="button" id="open-settings" aria-label="設定">⚙</button>
-        </div>
+        <span class="tally">${state.items.length}</span>
       </header>`;
   }
 
@@ -81,18 +82,29 @@
     return `
       <nav class="navbar" aria-label="画面の切り替え">
         ${item('fridge', '冷蔵庫', ICON_FRIDGE)}
-        ${item('list', '期限順', ICON_LIST)}
         ${item('shopping', '買い物', ICON_CART)}
+        ${item('notices', 'お知らせ', ICON_BELL)}
+        ${item('report', 'レポート', ICON_REPORT)}
+        ${item('settings', '設定', ICON_GEAR)}
       </nav>`;
   }
 
   /** いま見ている画面の名前と、その画面だけの操作 */
   function paneHead() {
-    const titles = { fridge: '冷蔵庫', list: '期限が近い順', shopping: '買い物リスト' };
+    const titles = {
+      fridge: '冷蔵庫', shopping: '買い物リスト',
+      notices: 'お知らせ', report: 'レポート', settings: '設定',
+    };
+
+    if (view !== 'fridge') return `<div class="pane-head"><h2>${titles[view]}</h2></div>`;
+
+    const seg = (key, label) =>
+      `<button class="seg" type="button" data-mode="${key}" aria-pressed="${fridgeMode === key}">${label}</button>`;
+
     return `
       <div class="pane-head">
-        <h2>${titles[view]}</h2>
-        ${view === 'fridge'
+        <div class="segmented">${seg('figure', '図')}${seg('expiry', '期限順')}</div>
+        ${fridgeMode === 'figure'
           ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
                ${editingLayout ? '編集を終える' : '配置を編集'}
              </button>`
@@ -110,14 +122,14 @@
 
     const urgent = state.items
       .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
-      .filter((x) => x.u.days !== null && x.u.days <= ALERT_THRESHOLD_DAYS)
+      .filter((x) => x.u.days !== null && x.u.days <= state.notify.daysBefore)
       .sort((a, b) => a.u.days - b.u.days);
 
     if (urgent.length === 0) {
       return `
         <section class="summary" data-level="NONE">
           <div class="summary-eyebrow">今日 ${formatDate(today)}</div>
-          <div class="summary-head">${ALERT_THRESHOLD_DAYS}日以内に期限を迎える食材はありません</div>
+          <div class="summary-head">${state.notify.daysBefore}日以内に期限を迎える食材はありません</div>
           <div class="summary-names">在庫 ${state.items.length} 件を管理中です。</div>
         </section>`;
     }
@@ -153,9 +165,11 @@
   }
 
   function paneFor(current, today) {
-    if (current === 'fridge') return fridgePane(today);
+    if (current === 'fridge') return fridgeMode === 'figure' ? fridgePane(today) : listPane(today);
     if (current === 'shopping') return shoppingPane();
-    return listPane(today);
+    if (current === 'notices') return noticesPane(today);
+    if (current === 'report') return reportPane(today);
+    return settingsPane();
   }
 
   /* --- 冷蔵庫の図 ------------------------------------------------------- */
@@ -236,6 +250,188 @@
       </div>`;
   }
 
+  /* --- お知らせ ----------------------------------------------------------- */
+
+  /**
+   * いま気づくべきことを一枚にまとめる。
+   * Android では毎朝ここの中身をそのまま通知に出す。Web では鳴らせないので、
+   * 開いたときに必ず目に入る場所として置いてある（仕様書8.3）。
+   */
+  function noticesPane(today) {
+    const graded = state.items
+      .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
+      .filter((x) => x.u.days !== null)
+      .sort((a, b) => a.u.days - b.u.days);
+
+    const expired = graded.filter((x) => x.u.days < 0);
+    const soon = graded.filter((x) => x.u.days >= 0 && x.u.days <= state.notify.daysBefore);
+    const unplaced = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
+
+    const group = (title, tone, entries, note) => {
+      if (entries.length === 0) return '';
+      return `
+        <section class="notice-group" data-tone="${tone}">
+          <header><h3>${title}</h3><span>${entries.length}件</span></header>
+          ${note ? `<p>${note}</p>` : ''}
+          <ul>
+            ${entries.map((x) => `
+              <li>
+                <span>${esc(x.item.name)}</span>
+                <em>${remainingLabel(x.u.days)}${x.u.estimated ? '（目安）' : ''}</em>
+              </li>`).join('')}
+          </ul>
+        </section>`;
+    };
+
+    const nothing = expired.length === 0 && soon.length === 0 && unplaced.length === 0;
+
+    return `
+      <div class="notices">
+        ${nothing ? '<p class="notices-empty">いま気にすることはありません。</p>' : ''}
+        ${group('期限を過ぎています', 'critical', expired,
+          '見た目とにおいを確かめてから判断してください。消費期限のものは食べないでください。')}
+        ${group(`${state.notify.daysBefore}日以内に期限を迎えます`, 'warn', soon, '')}
+        ${unplaced.length > 0 ? `
+          <section class="notice-group" data-tone="plain">
+            <header><h3>まだ冷蔵庫に入れていません</h3><span>${unplaced.length}件</span></header>
+            <p>入れる場所を決めると、期限の目安が付きます。</p>
+            <ul>${unplaced.map((i) => `<li><span>${esc(i.name)}</span><em>未収納</em></li>`).join('')}</ul>
+          </section>` : ''}
+
+        <p class="notices-note">
+          Android 版ではこの内容を毎朝 ${state.notify.time} に1通だけ通知します。
+          通知の時刻と日数は設定から変えられます。
+        </p>
+      </div>`;
+  }
+
+  /* --- レポート ----------------------------------------------------------- */
+
+  function reportPane(today) {
+    const days = streakDays(state.logs, state.startedAt, today);
+    const best = Math.max(state.bestStreak, days);
+    const stats = consumptionStats(state.logs, addDays(today, -29), today);
+
+    return `
+      <div class="report">
+        <section class="hero">
+          <span class="hero-label">食品ロスなし</span>
+          <span class="hero-number">${days}<i>日</i></span>
+          <span class="hero-sub">最高記録 ${best}日</span>
+        </section>
+
+        <h3 class="report-head">直近30日</h3>
+        ${stats.total === 0
+          ? '<p class="report-empty">まだ記録がありません。食べた・捨てたを記録すると、ここに出ます。</p>'
+          : `
+            <div class="stats">
+              <div class="stat"><span>食べた</span><b>${stats.eaten}</b></div>
+              <div class="stat"><span>捨てた</span><b>${stats.discarded}</b></div>
+              <div class="stat"><span>食べきり率</span><b>${Math.round(stats.rate * 100)}<i>%</i></b></div>
+            </div>
+            ${discardChart(stats.discardedByCategory)}`}
+      </div>`;
+  }
+
+  /**
+   * 捨てたものの内訳。
+   * 一つの量を並べて比べるだけなので、棒は一色で足りる。
+   * 期限の警告に使う赤・橙・黄はここでも使わない。あれは緊急度だけの色で、
+   * 統計の棒に混ぜると「この棒は危ない」と読めてしまう。
+   */
+  function discardChart(rows) {
+    if (rows.length === 0) return '';
+    const max = Math.max(...rows.map((row) => row.count));
+
+    return `
+      <section class="chart">
+        <h4>捨てたものの内訳</h4>
+        <ul class="bars">
+          ${rows.map((row) => `
+            <li>
+              <span class="bar-label">${CATEGORY_LABELS[row.category]}</span>
+              <span class="bar-track">
+                <span class="bar-fill" style="width:${Math.max(4, (row.count / max) * 100)}%"></span>
+              </span>
+              <span class="bar-value">${row.count}</span>
+            </li>`).join('')}
+        </ul>
+      </section>`;
+  }
+
+  /* --- 設定 --------------------------------------------------------------- */
+
+  function settingsPane() {
+    const ai = AiAssist.loadSettings();
+
+    return `
+      <div class="settings-pane">
+        <section class="settings-block">
+          <h3>お知らせ</h3>
+          <label class="check-row">
+            <input type="checkbox" id="notify-enabled" ${state.notify.enabled ? 'checked' : ''}>
+            <span>期限が近いものを知らせる</span>
+          </label>
+          <div class="field-row">
+            <span>時刻</span>
+            <input type="time" id="notify-time" value="${state.notify.time}">
+          </div>
+          <div class="field-row">
+            <span>何日前</span>
+            <input type="number" id="notify-days" min="0" max="14" value="${state.notify.daysBefore}">
+          </div>
+          <p class="hint">
+            Web 版では通知を鳴らせません。この設定は Android 版で使われます。
+            通知は届かないことがあるので、アプリを開けば必ず状況が分かる作りにしてあります。
+          </p>
+        </section>
+
+        <section class="settings-block">
+          <h3>AI での入力補助</h3>
+          <p class="warn">
+            このアプリは端末内で完結し、データを外へ出しません。
+            AI を有効にすると、入力した食品名が下の接続先へ送られます。
+            既定は無効で、有効にしない限り通信は起きません。
+          </p>
+          <label class="check-row">
+            <input type="checkbox" id="ai-enabled" ${ai.enabled ? 'checked' : ''}>
+            <span>AI を有効にする</span>
+          </label>
+          <div class="field">
+            <label for="ai-endpoint">接続先</label>
+            <input id="ai-endpoint" type="url" placeholder="https://..." value="${esc(ai.endpoint)}" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-model">モデル</label>
+            <input id="ai-model" type="text" value="${esc(ai.model)}" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-key">APIキー</label>
+            <input id="ai-key" type="password" value="${esc(ai.apiKey)}" autocomplete="off">
+          </div>
+          <p class="hint">通信部分はまだ実装されていないため、有効にしても動作しません。</p>
+        </section>
+
+        <button class="btn btn-primary" type="button" id="save-settings">設定を保存する</button>
+
+        <section class="settings-block">
+          <h3>免責事項</h3>
+          <p class="hint">
+            本アプリが表示する期限および目安日数は一般的な参考情報であり、食品の実際の安全性を
+            保証するものではありません。実際の日持ちは、購入時の鮮度・開封の有無・保管温度等により
+            大きく変動します。喫食の可否は、必ずご自身で食品の状態（見た目・におい等）を確認して
+            ご判断ください。また、端末の状態により通知が遅延・不達となる場合があり、通知の到達
+            およびデータの保全を保証するものではありません。
+            本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
+          </p>
+        </section>
+
+        ${state.sampleLoaded
+          ? '<button class="btn btn-ghost" type="button" id="clear-sample">サンプルデータを削除して空から始める</button>'
+          : ''}
+      </div>`;
+  }
+
   /* --- 買い物リスト ------------------------------------------------------ */
 
   function shoppingPane() {
@@ -303,7 +499,7 @@
   function fridgeShareText(today) {
     const urgent = state.items
       .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
-      .filter((x) => x.u.days !== null && x.u.days <= ALERT_THRESHOLD_DAYS)
+      .filter((x) => x.u.days !== null && x.u.days <= state.notify.daysBefore)
       .sort((a, b) => a.u.days - b.u.days);
 
     const lines = [`冷蔵庫の様子（${formatDate(today)}）`, ''];
@@ -353,7 +549,6 @@
         実際の日持ちは、購入時の鮮度・開封の有無・保管温度等により大きく変動します。
         喫食の可否は、必ずご自身で食品の状態（見た目・におい等）を確認してご判断ください。
         本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
-        ${state.sampleLoaded ? '<br><button class="textlink" type="button" id="clear-sample">サンプルデータを削除して空から始める</button>' : ''}
       </section>`;
   }
 
@@ -363,7 +558,7 @@
    * まず「買ってきたもの」に溜まり、どの段へ入れるかは後から図の上で決められる。
    */
   function quickBar() {
-    if (editingLayout || view === 'shopping') return '';
+    if (editingLayout || view !== 'fridge') return '';
 
     const names = templateNames();
     const chips = names.map((name) =>
@@ -419,6 +614,34 @@
     const addButton = root.querySelector('#add-item');
     if (addButton) addButton.addEventListener('click', () => openEditor(null));
 
+    root.querySelectorAll('[data-mode]').forEach((el) => {
+      el.addEventListener('click', () => {
+        fridgeMode = el.dataset.mode;
+        editingLayout = false;
+        render();
+      });
+    });
+
+    const saveSettings = root.querySelector('#save-settings');
+    if (saveSettings) {
+      saveSettings.addEventListener('click', () => {
+        state.notify = {
+          enabled: root.querySelector('#notify-enabled').checked,
+          time: root.querySelector('#notify-time').value || '08:00',
+          daysBefore: Math.min(14, Math.max(0, Number(root.querySelector('#notify-days').value) || 0)),
+        };
+        AiAssist.saveSettings({
+          enabled: root.querySelector('#ai-enabled').checked,
+          endpoint: root.querySelector('#ai-endpoint').value.trim(),
+          model: root.querySelector('#ai-model').value.trim(),
+          apiKey: root.querySelector('#ai-key').value,
+        });
+        saveState(state);
+        render();
+        toast('設定を保存しました');
+      });
+    }
+
     const quickForm = root.querySelector('#quick-form');
     if (quickForm) {
       quickForm.addEventListener('submit', (event) => {
@@ -437,9 +660,6 @@
 
     const openFull = root.querySelector('#open-full');
     if (openFull) openFull.addEventListener('click', () => openEditor(null));
-
-    const settingsButton = root.querySelector('#open-settings');
-    if (settingsButton) settingsButton.addEventListener('click', openSettings);
 
     const buyForm = root.querySelector('#buy-form');
     if (buyForm) {
@@ -936,75 +1156,6 @@
       </div>`;
     el.querySelector('[data-close]').addEventListener('click', () => el.close());
     return el;
-  }
-
-  function buildSettingsDialog() {
-    const el = document.createElement('dialog');
-    el.id = 'settings';
-    el.innerHTML = `
-      <div class="sheet-form">
-        <div class="form-head">
-          <h2>設定</h2>
-          <button class="icon-btn" type="button" data-close aria-label="閉じる">×</button>
-        </div>
-
-        <section class="settings-block">
-          <h3>AI での入力補助</h3>
-          <p class="warn">
-            このアプリは端末内で完結し、データを外へ出しません。
-            AI を有効にすると、入力した食品名が下の接続先へ送られます。
-            既定は無効で、有効にしない限り通信は起きません。
-          </p>
-
-          <label class="check-row">
-            <input type="checkbox" id="ai-enabled">
-            <span>AI を有効にする</span>
-          </label>
-
-          <div class="field">
-            <label for="ai-endpoint">接続先</label>
-            <input id="ai-endpoint" type="url" placeholder="https://..." autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="ai-model">モデル</label>
-            <input id="ai-model" type="text" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="ai-key">APIキー</label>
-            <input id="ai-key" type="password" autocomplete="off">
-          </div>
-          <p class="hint" id="ai-status"></p>
-        </section>
-
-        <div class="form-actions">
-          <button class="btn btn-primary" type="button" data-save>保存する</button>
-        </div>
-      </div>`;
-
-    el.querySelector('[data-close]').addEventListener('click', () => el.close());
-    el.querySelector('[data-save]').addEventListener('click', () => {
-      AiAssist.saveSettings({
-        enabled: el.querySelector('#ai-enabled').checked,
-        endpoint: el.querySelector('#ai-endpoint').value.trim(),
-        model: el.querySelector('#ai-model').value.trim(),
-        apiKey: el.querySelector('#ai-key').value,
-      });
-      el.close();
-      toast('設定を保存しました');
-    });
-    return el;
-  }
-
-  function openSettings() {
-    const settings = AiAssist.loadSettings();
-    settingsDialog.querySelector('#ai-enabled').checked = settings.enabled;
-    settingsDialog.querySelector('#ai-endpoint').value = settings.endpoint;
-    settingsDialog.querySelector('#ai-model').value = settings.model;
-    settingsDialog.querySelector('#ai-key').value = settings.apiKey;
-    settingsDialog.querySelector('#ai-status').textContent = AiAssist.isReady()
-      ? '設定は揃っています。ただし通信部分はまだ実装されていないため、動作しません。'
-      : '未設定です。';
-    settingsDialog.showModal();
   }
 
   /* --- 入力ダイアログ --------------------------------------------------- */

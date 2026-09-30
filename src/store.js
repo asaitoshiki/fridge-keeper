@@ -97,6 +97,8 @@ function emptyState() {
     shopping: [],
     /* よく買うもの。登録のたびに先頭へ積み、同じ名前は一つにまとめる */
     templates: [],
+    /* 通知の設定。Web では鳴らせないが、Android へ持っていく値をここで決めておく */
+    notify: { enabled: true, time: '08:00', daysBefore: 3 },
     sampleLoaded: false,
   };
 }
@@ -142,6 +144,7 @@ function normalize(parsed) {
   if (!Array.isArray(state.logs)) state.logs = [];
   if (!Array.isArray(state.shopping)) state.shopping = [];
   if (!Array.isArray(state.templates)) state.templates = [];
+  state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   state.layout.forEach((unit) => {

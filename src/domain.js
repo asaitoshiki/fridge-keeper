@@ -197,6 +197,41 @@ function streakDays(logs, startedAt, today) {
   return Math.max(0, diffDays(from, today));
 }
 
+/* --- 実績の集計 --------------------------------------------------------- */
+
+/**
+ * 期間内の食べた・捨てたを数える。
+ * 食べきり率は、減らした総数のうち食べた分の割合。記録が無い間は null を返し、
+ * 呼び出し側で「まだ出せない」と伝える。0% と書くと捨てたように見えてしまう。
+ */
+function consumptionStats(logs, fromIso, toIso) {
+  const inRange = logs.filter((log) => log.date >= fromIso && log.date <= toIso);
+  const sum = (type) => inRange
+    .filter((log) => log.type === type)
+    .reduce((total, log) => total + log.quantity, 0);
+
+  const eaten = sum('EATEN');
+  const discarded = sum('DISCARDED');
+  const total = eaten + discarded;
+
+  const byCategory = {};
+  inRange
+    .filter((log) => log.type === 'DISCARDED')
+    .forEach((log) => {
+      byCategory[log.category] = (byCategory[log.category] || 0) + log.quantity;
+    });
+
+  return {
+    eaten,
+    discarded,
+    total,
+    rate: total > 0 ? eaten / total : null,
+    discardedByCategory: Object.entries(byCategory)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
+
 /* --- 並べ替え ---------------------------------------------------------- */
 
 /**
