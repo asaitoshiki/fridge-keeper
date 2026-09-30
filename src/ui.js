@@ -16,6 +16,11 @@
   let kindFilter = 'ALL';
   let editingId = null;
 
+  /* タブのアイコン。太さと大きさを揃えて、並べたときに粒が揃うようにしてある */
+  const ICON_FRIDGE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M6 10h12"/><path d="M9 6.5v2"/><path d="M9 13v2.5"/></svg>';
+  const ICON_LIST = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>';
+  const ICON_CART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-1.6 9.2a2 2 0 0 1-2 1.8H7.6a2 2 0 0 1-2-1.8z"/><path d="M9 7V5.5A3 3 0 0 1 15 5.5V7"/></svg>';
+
   const root = document.getElementById('app');
   const dialog = buildDialog();
   const confirmDialog = buildConfirmDialog();
@@ -37,14 +42,17 @@
   function render() {
     const today = todayIso();
     root.innerHTML = [
-      masthead(),
+      appBar(),
+      '<main class="screen">',
       summary(today),
       streakBanner(today),
-      tabs(),
+      paneHead(),
       paneFor(view, today),
       disclaimer(),
+      '</main>',
+      navBar(),
+      fab(),
     ].join('');
-    root.insertAdjacentHTML('beforeend', fab());
     bind(today);
   }
 
@@ -52,15 +60,44 @@
     return kindOf(state.layout, item);
   }
 
-  function masthead() {
+  function appBar() {
     return `
-      <header class="masthead">
+      <header class="appbar">
         <h1 class="wordmark">冷蔵庫<span>キーパー</span></h1>
-        <div class="masthead-side">
-          <span class="tally">${state.items.length} ITEMS</span>
+        <div class="appbar-side">
+          <span class="tally">${state.items.length}</span>
           <button class="icon-btn" type="button" id="open-settings" aria-label="設定">⚙</button>
         </div>
       </header>`;
+  }
+
+  /** 下の固定タブ。Android 版の NavigationBar にそのまま対応する */
+  function navBar() {
+    const item = (key, label, icon) => `
+      <button class="nav-item" type="button" data-view="${key}" aria-pressed="${view === key}">
+        ${icon}<span>${label}</span>
+      </button>`;
+
+    return `
+      <nav class="navbar" aria-label="画面の切り替え">
+        ${item('fridge', '冷蔵庫', ICON_FRIDGE)}
+        ${item('list', '期限順', ICON_LIST)}
+        ${item('shopping', '買い物', ICON_CART)}
+      </nav>`;
+  }
+
+  /** いま見ている画面の名前と、その画面だけの操作 */
+  function paneHead() {
+    const titles = { fridge: '冷蔵庫', list: '期限が近い順', shopping: '買い物リスト' };
+    return `
+      <div class="pane-head">
+        <h2>${titles[view]}</h2>
+        ${view === 'fridge'
+          ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
+               ${editingLayout ? '編集を終える' : '配置を編集'}
+             </button>`
+          : ''}
+      </div>`;
   }
 
   /**
@@ -113,22 +150,6 @@
         <span class="streak-days"><b>${days}</b>日</span>
         <span class="streak-best">最高 ${best}日</span>
       </section>`;
-  }
-
-  function tabs() {
-    const tab = (key, label) =>
-      `<button class="tab" type="button" data-view="${key}" aria-pressed="${view === key}">${label}</button>`;
-    return `
-      <div class="tabbar">
-        <nav class="tabs" aria-label="表示の切り替え">
-          ${tab('fridge', '冷蔵庫')}${tab('list', '期限順')}${tab('shopping', '買い物')}
-        </nav>
-        ${view === 'fridge'
-          ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
-               ${editingLayout ? '編集を終える' : '配置を編集'}
-             </button>`
-          : ''}
-      </div>`;
   }
 
   function paneFor(current, today) {
