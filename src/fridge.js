@@ -570,13 +570,21 @@ const FridgeView = (function () {
     requestAnimationFrame(edgeScroll);
   }
 
-  /** 端まで運んだときに画面を送る。スマホでは冷蔵庫全体が一画面に収まらないため */
+  /**
+   * 端まで運んだときに画面を送る。スマホでは冷蔵庫全体が一画面に収まらないため。
+   * 送る相手はウィンドウではなく本文の領域。上下のバーは動かないので、
+   * その内側だけを基準に端を判定する。
+   */
   function edgeScroll() {
     if (!drag || !drag.active) return;
-    const top = drag.y - EDGE_ZONE;
-    const bottom = drag.y - (window.innerHeight - EDGE_ZONE);
-    if (top < 0) window.scrollBy(0, Math.max(-EDGE_SPEED, top / 6));
-    else if (bottom > 0) window.scrollBy(0, Math.min(EDGE_SPEED, bottom / 6));
+    const screen = document.querySelector('.screen');
+    if (!screen) return;
+
+    const rect = screen.getBoundingClientRect();
+    const top = drag.y - (rect.top + EDGE_ZONE);
+    const bottom = drag.y - (rect.bottom - EDGE_ZONE);
+    if (top < 0) screen.scrollBy(0, Math.max(-EDGE_SPEED, top / 6));
+    else if (bottom > 0) screen.scrollBy(0, Math.min(EDGE_SPEED, bottom / 6));
     requestAnimationFrame(edgeScroll);
   }
 

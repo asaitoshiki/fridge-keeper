@@ -11,6 +11,11 @@
   /* 冷蔵庫タブの中の見せ方。図と期限順は同じ在庫の別の見え方なので、タブは分けない */
   let fridgeMode = 'figure';
   let editingLayout = false;
+  /* 帯の状態。初回描画より前に置く。let は宣言行を通るまで触れられない */
+  let undoState = null;
+  let undoPending = false;
+  let banner = null;
+  let bannerTimer = null;
   /* 編集中に調整している対象。段か収納のどちらか */
   let selection = { type: 'comp', id: null };
   let kindFilter = 'ALL';
@@ -29,12 +34,10 @@
   const confirmDialog = buildConfirmDialog();
   const actionDialog = buildActionDialog();
   const shareDialog = buildShareDialog();
-  const undoBar = buildUndoBar();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
   document.body.appendChild(shareDialog);
-  document.body.appendChild(undoBar);
 
   render();
 
@@ -52,11 +55,10 @@
       view === 'fridge' || view === 'notices' ? disclaimer() : '',
       '</main>',
       quickBar(),
+      bannerMarkup(),
       navBar(),
     ].join('');
 
-    /* 取り消しの帯を、クイック追加の有無に合わせた高さに出すための目印 */
-    document.body.dataset.quick = view === 'fridge' && !editingLayout ? '1' : '';
     bind(today);
   }
 
@@ -528,15 +530,8 @@
   }
 
   function toast(message) {
-    const bar = document.getElementById('undo-bar');
-    bar.querySelector('.undo-text').textContent = message;
-    bar.querySelector('.undo-button').hidden = true;
-    bar.hidden = false;
-    clearTimeout(undoTimer);
-    undoTimer = setTimeout(() => {
-      bar.hidden = true;
-      bar.querySelector('.undo-button').hidden = false;
-    }, 4000);
+    armBanner(message, false);
+    render();
   }
 
   /* --- 共通パーツ ------------------------------------------------------- */
@@ -613,6 +608,9 @@
 
     const addButton = root.querySelector('#add-item');
     if (addButton) addButton.addEventListener('click', () => openEditor(null));
+
+    const undoButton = root.querySelector('#undo-button');
+    if (undoButton) undoButton.addEventListener('click', undo);
 
     root.querySelectorAll('[data-mode]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -741,19 +739,13 @@
   }
 
   function commit() {
+    /* 帯は描く前に決める。描いたあとに足すと、もう一度描き直すことになる */
+    if (undoPending && undoState) {
+      undoPending = false;
+      armBanner(undoState.message, true);
+    }
     saveState(state);
     render();
-    showUndo();
-  }
-
-  function buildUndoBar() {
-    const el = document.createElement('div');
-    el.id = 'undo-bar';
-    el.className = 'undo-bar';
-    el.hidden = true;
-    el.innerHTML = '<span class="undo-text"></span><button type="button" class="undo-button">取り消す</button>';
-    el.querySelector('.undo-button').addEventListener('click', undo);
-    return el;
   }
 
   function firstCompartmentId() {
@@ -1052,11 +1044,31 @@
     commit();
   }
 
-  /* --- 取り消し --------------------------------------------------------- */
+  /* --- 取り消しとお知らせの帯 --------------------------------------------- */
 
-  let undoState = null;
-  let undoPending = false;
-  let undoTimer = null;
+  /**
+   * 帯は画面の骨格の一部として描く。
+   * body に貼り付けて position:fixed にすると、端末枠に収めたときに枠の外へ出る。
+   * 描き直しで消えないよう、DOM を直接いじらず状態から組み立てる。
+   */
+  function bannerMarkup() {
+    if (!banner) return '';
+    return `
+      <div class="undo-bar">
+        <span class="undo-text">${esc(banner.message)}</span>
+        ${banner.undoable ? '<button class="undo-button" type="button" id="undo-button">取り消す</button>' : ''}
+      </div>`;
+  }
+
+  function armBanner(message, undoable) {
+    banner = { message, undoable };
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => {
+      banner = null;
+      undoState = null;
+      render();
+    }, undoable ? 6000 : 4000);
+  }
 
   /** 誤タップ・誤スワイプの取り返しがつくよう、操作前の状態をまるごと控えておく */
   function snapshot(message) {
@@ -1069,29 +1081,14 @@
     };
   }
 
-  function showUndo() {
-    if (!undoPending || !undoState) return;
-    undoPending = false;
-    document.getElementById('undo-bar').querySelector('.undo-button').hidden = false;
-    const bar = document.getElementById('undo-bar');
-    bar.querySelector('.undo-text').textContent = undoState.message;
-    bar.hidden = false;
-
-    clearTimeout(undoTimer);
-    undoTimer = setTimeout(() => {
-      bar.hidden = true;
-      undoState = null;
-    }, 6000);
-  }
-
   function undo() {
     if (!undoState) return;
     state.items = undoState.items;
     state.logs = undoState.logs;
     state.bestStreak = undoState.bestStreak;
     undoState = null;
-    clearTimeout(undoTimer);
-    document.getElementById('undo-bar').hidden = true;
+    banner = null;
+    clearTimeout(bannerTimer);
     saveState(state);
     render();
   }

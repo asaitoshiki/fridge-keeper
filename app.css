@@ -159,6 +159,8 @@
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
   margin: 0;
   background: var(--ground);
@@ -172,22 +174,46 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-#app { max-width: 560px; margin: 0 auto; }
+/*
+ * 上バー・スクロール領域・下バーの3段。
+ * 下のバーを position:fixed で浮かせると、端末枠（transform を持つ）の中では
+ * 固定が効かず中身と一緒に流れてしまう。段に積めば、枠の有無によらず止まる。
+ */
+#app {
+  position: relative;
+  height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
 .screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 14px 16px calc(210px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 16px 24px;
 }
+
+/*
+ * 中身は縮めない。
+ * フレックス項目は overflow:hidden を持つと最小高さが 0 になるため、
+ * 高さの決まった入れ物に入れた途端、一覧の枠などが潰れて中身がはみ出す。
+ */
+.screen > * { flex: 0 0 auto; }
 
 /* --- ヘッダー ---------------------------------------------------------- */
 
 /* 上の固定バー。スクロールしても名前と設定へ手が届くようにする */
 .appbar {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 40;
+  flex: none;
+  padding-top: env(safe-area-inset-top, 0px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -228,11 +254,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* 下の固定タブ */
 .navbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 45;
+  flex: none;
   display: flex;
   background: var(--surface);
   border-top: 1px solid var(--line);
@@ -484,29 +506,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
   text-underline-offset: 2px;
   cursor: pointer;
 }
-
-/* --- 追加ボタン --------------------------------------------------------- */
-
-.fab {
-  position: fixed;
-  right: max(16px, calc(50vw - 264px));
-  bottom: calc(74px + env(safe-area-inset-bottom, 0px));
-  height: 52px;
-  padding: 0 22px 0 18px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 6px 20px -6px rgba(13, 106, 131, .6);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.fab:hover { filter: brightness(1.08); }
-.fab svg { width: 18px; height: 18px; }
 
 /* --- 入力ダイアログ ------------------------------------------------------ */
 
@@ -1109,21 +1108,15 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
     height: 100%;
     border-radius: 38px;
     background: var(--ground);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    /* 中の position:fixed（タブバー・追加ボタン）を、画面の外ではなくこの枠に留める */
-    transform: translateZ(0);
+    overflow: hidden;
   }
-  .device-screen::-webkit-scrollbar { display: none; }
+  .screen::-webkit-scrollbar { display: none; }
+  .screen { scrollbar-width: none; }
 
   /* 島の下に見出しが潜らないよう、上だけ余白を足す */
   .appbar { padding-top: 46px; }
   /* ホームバーのぶん、タブバーを持ち上げる */
   .navbar { padding-bottom: 16px; }
-  .quickbar { padding-bottom: 12px; bottom: 75px; }
-  .undo-bar { bottom: 92px; }
-  body[data-quick="1"] .undo-bar { bottom: 206px; }
 
   /* ダイアログは最前面レイヤーに出るため枠では切れない。枠幅に合わせて細くする */
   .sheet-form { width: min(348px, calc(100vw - 24px)); max-height: min(78vh, 700px); }
@@ -1179,11 +1172,7 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
    =========================================================================== */
 
 .quickbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(59px + env(safe-area-inset-bottom, 0px));
-  z-index: 44;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -1606,10 +1595,10 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 /* 取り消しの帯。指の届く下端に出す */
 .undo-bar {
-  position: fixed;
+  position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  bottom: 14px;
   z-index: 70;
   display: flex;
   align-items: center;
@@ -1622,7 +1611,8 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   box-shadow: 0 10px 28px -10px rgba(10, 24, 32, .65);
   font-size: 13px;
 }
-.undo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width を切らないと、折り返さない文字が縮まず帯を画面の外まで押し広げる */
+.undo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .undo-button {
   flex: 0 0 auto;
   background: none;
