@@ -20,8 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -309,7 +309,7 @@ private val AppTab.icon: ImageVector
         AppTab.FRIDGE -> Icons.Filled.Home
         AppTab.SHOPPING -> Icons.Filled.ShoppingCart
         AppTab.NOTICES -> Icons.Filled.Notifications
-        AppTab.REPORT -> Icons.Filled.List
+        AppTab.REPORT -> Icons.Filled.DateRange
         AppTab.SETTINGS -> Icons.Filled.Settings
     }
 
