@@ -45,6 +45,8 @@ import com.asaitoshiki.fridgekeeper.domain.model.StorageUnitType
 import com.asaitoshiki.fridgekeeper.ui.label
 import com.asaitoshiki.fridgekeeper.ui.theme.FridgeColors
 import com.asaitoshiki.fridgekeeper.ui.theme.LocalIsDarkTheme
+import com.asaitoshiki.fridgekeeper.ui.theme.colorOf
+import com.asaitoshiki.fridgekeeper.ui.theme.inkFor
 
 /**
  * 段の並びを、扉ひとつ分と引き出しひとつ分の区画にまとめる。
@@ -93,9 +95,25 @@ fun FridgeView(
     onDrop: (Long, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        state.units.forEach { unitView -> UnitBox(unitView, drag, onOpenItem, onDrop) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        /* 買ってきたものを上に置く。つまんで下の収納へ運ぶ向きに合わせる */
         Tray(state.unplaced, drag, onOpenItem, onDrop)
+
+        /**
+         * 収納は横に2つずつ並べる。
+         * 冷蔵庫と常温の棚が同じ画面に収まり、縦に積むより運ぶ距離が短くなる。
+         */
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            repeat(2) { column ->
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    state.units.filterIndexed { index, _ -> index % 2 == column }
+                        .forEach { unitView -> UnitBox(unitView, drag, onOpenItem, onDrop) }
+                }
+            }
+        }
     }
 }
 
@@ -108,7 +126,9 @@ private fun UnitBox(
 ) {
     val dark = LocalIsDarkTheme.current
     val isFridge = unitView.unit.type == StorageUnitType.FRIDGE
-    val case = if (dark) FridgeColors.caseDark else FridgeColors.caseLight
+    /* 選んだ色があればそれを筐体に使う。選んでいなければ既定のステンレス色 */
+    val case = colorOf(unitView.unit.colorArgb)
+        ?: if (dark) FridgeColors.caseDark else FridgeColors.caseLight
     val chrome = if (dark) FridgeColors.chromeDark else FridgeColors.chromeLight
 
     Column {
@@ -221,8 +241,11 @@ private fun DrawerRow(
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         items.forEach { view ->
-            DrawerBox(view, drag, onOpenItem, onDrop, Modifier.weight(1f))
+            DrawerBox(view, drag, onOpenItem, onDrop, Modifier.weight(view.compartment.widthPercent.toFloat()))
         }
+        /* 行が埋まっていないときは余りを空けておく。幅の指定どおりに見えるようにする */
+        val rest = 100 - items.sumOf { it.compartment.widthPercent }
+        if (rest > 0) Spacer(Modifier.weight(rest.toFloat()))
     }
 }
 
@@ -267,9 +290,10 @@ private fun CompartmentBox(
     onDrop: (Long, String?) -> Unit,
 ) {
     val dark = LocalIsDarkTheme.current
-    val cavity = if (dark) FridgeColors.cavityDark else FridgeColors.cavityLight
     val frost = if (dark) FridgeColors.frostDark else FridgeColors.frostLight
     val compartment = view.compartment
+    val cavity = colorOf(compartment.colorArgb)
+        ?: if (dark) FridgeColors.cavityDark else FridgeColors.cavityLight
     val isTarget = drag.dragging && drag.target == compartment.id
 
     val background = when {
@@ -277,6 +301,8 @@ private fun CompartmentBox(
         compartment.location == StorageLocation.FREEZER -> lerpToward(cavity, frost)
         else -> cavity
     }
+    /* 濃い色を選んだときに段の名前が読めなくならないようにする */
+    val ink = inkFor(background)
 
     Column(
         Modifier
@@ -301,15 +327,15 @@ private fun CompartmentBox(
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = ink,
             )
             Text(
                 text = compartment.location.label,
                 fontSize = 9.sp,
                 lineHeight = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = ink.copy(alpha = 0.78f),
                 modifier = Modifier
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(3.dp))
+                    .border(1.dp, ink.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
                     .padding(horizontal = 3.dp),
             )
         }

@@ -1,11 +1,17 @@
 package com.asaitoshiki.fridgekeeper.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -25,6 +31,8 @@ import com.asaitoshiki.fridgekeeper.domain.model.CompartmentForm
 import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
 import com.asaitoshiki.fridgekeeper.domain.model.StorageUnitType
 import com.asaitoshiki.fridgekeeper.ui.label
+import com.asaitoshiki.fridgekeeper.ui.theme.CASE_COLORS
+import com.asaitoshiki.fridgekeeper.ui.theme.colorOf
 
 /**
  * 配置の編集。
@@ -40,6 +48,7 @@ fun LayoutEditor(
     onAddCompartment: (String) -> Unit,
     onRenameUnit: (StorageUnitEntity, String) -> Unit,
     onSetUnitType: (StorageUnitEntity, StorageUnitType) -> Unit,
+    onSetUnitColor: (StorageUnitEntity, Long?) -> Unit,
     onDeleteUnit: (String) -> Unit,
     onAddUnit: () -> Unit,
 ) {
@@ -83,6 +92,12 @@ fun LayoutEditor(
                     options = StorageUnitType.entries,
                     labelOf = { "見た目：${it.label}" },
                     onSelect = { onSetUnitType(unitView.unit, it) },
+                )
+
+                ColorField(
+                    title = "筐体の色",
+                    selected = unitView.unit.colorArgb,
+                    onSelect = { onSetUnitColor(unitView.unit, it) },
                 )
 
                 unitView.compartments.forEachIndexed { index, view ->
@@ -179,6 +194,12 @@ private fun CompartmentEditor(
             ) { Text("高さ ＋") }
         }
 
+        ColorField(
+            title = "庫内の色",
+            selected = compartment.colorArgb,
+            onSelect = { onSave(compartment.copy(colorArgb = it)) },
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { onMove(-1) }, enabled = !isFirst) { Text("↑") }
             OutlinedButton(onClick = { onMove(1) }, enabled = !isLast) { Text("↓") }
@@ -186,6 +207,58 @@ private fun CompartmentEditor(
                 onClick = onDelete,
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
             ) { Text("この段を削除") }
+        }
+    }
+}
+
+/**
+ * 色の選択。
+ * 期限の警告に使う赤・橙・黄は候補に入れない。庫内をその色にできてしまうと、
+ * 期限切れの食材が背景に紛れて見落とされる（仕様書8.2）。
+ */
+@Composable
+private fun ColorField(title: String, selected: Long?, onSelect: (Long?) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CASE_COLORS.forEach { option ->
+                val isSelected = option.argb == selected
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(
+                            colorOf(option.argb) ?: MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                            shape = RoundedCornerShape(7.dp),
+                        )
+                        .clickable { onSelect(option.argb) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    /* 「既定」は色が無いので、斜線の代わりに短い印を置く */
+                    if (option.argb == null) {
+                        Text(
+                            text = "既",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }

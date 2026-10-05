@@ -198,6 +198,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                                 onAddCompartment = viewModel::addCompartment,
                                 onRenameUnit = viewModel::renameUnit,
                                 onSetUnitType = viewModel::setUnitType,
+                                onSetUnitColor = viewModel::setUnitColor,
                                 onDeleteUnit = { id ->
                                     confirm = confirmDeleteUnit(state, id) { viewModel.deleteUnit(id) }
                                 },
