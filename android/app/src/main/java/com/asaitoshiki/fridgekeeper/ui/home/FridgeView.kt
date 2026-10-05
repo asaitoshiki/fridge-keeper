@@ -54,7 +54,9 @@ import com.asaitoshiki.fridgekeeper.ui.theme.LocalIsDarkTheme
  */
 private sealed interface Section {
     data class Door(val items: List<CompartmentView>) : Section
-    data class Drawer(val items: List<CompartmentView>, val half: Boolean) : Section
+    data class Drawer(val items: List<CompartmentView>) : Section {
+        val usedWidth: Int get() = items.sumOf { it.compartment.widthPercent }
+    }
 }
 
 private fun sectionsOf(compartments: List<CompartmentView>): List<Section> {
@@ -73,11 +75,12 @@ private fun sectionsOf(compartments: List<CompartmentView>): List<Section> {
 
         door = null
         val last = out.lastOrNull()
-        if (view.compartment.span == 1 && last is Section.Drawer && last.half && last.items.size == 1) {
-            out[out.lastIndex] = Section.Drawer(last.items + view, half = true)
+        /* 行の幅が100%を超えないうちは、同じ行へ並べる */
+        if (last is Section.Drawer && last.usedWidth + view.compartment.widthPercent <= 100) {
+            out[out.lastIndex] = Section.Drawer(last.items + view)
             return@forEach
         }
-        out.add(Section.Drawer(listOf(view), half = view.compartment.span == 1))
+        out.add(Section.Drawer(listOf(view)))
     }
     return out
 }
@@ -278,7 +281,7 @@ private fun CompartmentBox(
     Column(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = (30 + compartment.size * 17).dp)
+            .heightIn(min = (compartment.heightDp * 0.68f).dp)
             .onGloballyPositioned { drag.zones[compartment.id] = it.boundsInWindow() }
             .clip(RoundedCornerShape(6.dp))
             .background(background)

@@ -20,20 +20,20 @@ object DefaultLayout {
     const val UNIT_PANTRY = "unit-pantry"
 
     fun units(): List<StorageUnitEntity> = listOf(
-        StorageUnitEntity(UNIT_FRIDGE, "冷蔵庫", StorageUnitType.FRIDGE, 0),
-        StorageUnitEntity(UNIT_PANTRY, "常温の棚", StorageUnitType.SHELF, 1),
+        StorageUnitEntity(UNIT_FRIDGE, "冷蔵庫", StorageUnitType.FRIDGE, null, 0),
+        StorageUnitEntity(UNIT_PANTRY, "常温の棚", StorageUnitType.SHELF, null, 1),
     )
 
     fun compartments(): List<CompartmentEntity> = listOf(
-        comp("c-door", UNIT_FRIDGE, "ドアポケット", StorageLocation.FRIDGE, CompartmentForm.POCKET, 2, 1, 0),
-        comp("c-upper", UNIT_FRIDGE, "上段", StorageLocation.FRIDGE, CompartmentForm.SHELF, 2, 2, 1),
-        comp("c-middle", UNIT_FRIDGE, "中段", StorageLocation.FRIDGE, CompartmentForm.SHELF, 2, 2, 2),
-        comp("c-chilled", UNIT_FRIDGE, "チルド室", StorageLocation.FRIDGE, CompartmentForm.DRAWER, 2, 1, 3),
-        comp("c-ice", UNIT_FRIDGE, "製氷室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 1, 1, 4),
-        comp("c-freezer-s", UNIT_FRIDGE, "小さな冷凍室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 1, 1, 5),
-        comp("c-veg", UNIT_FRIDGE, "野菜室", StorageLocation.VEGETABLE_DRAWER, CompartmentForm.DRAWER, 2, 2, 6),
-        comp("c-freezer", UNIT_FRIDGE, "冷凍室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 2, 2, 7),
-        comp("c-pantry", UNIT_PANTRY, "棚", StorageLocation.ROOM_TEMP, CompartmentForm.SHELF, 2, 2, 0),
+        comp("c-door", UNIT_FRIDGE, "ドアポケット", StorageLocation.FRIDGE, CompartmentForm.POCKET, 100, 52, 0),
+        comp("c-upper", UNIT_FRIDGE, "上段", StorageLocation.FRIDGE, CompartmentForm.SHELF, 100, 68, 1),
+        comp("c-middle", UNIT_FRIDGE, "中段", StorageLocation.FRIDGE, CompartmentForm.SHELF, 100, 68, 2),
+        comp("c-chilled", UNIT_FRIDGE, "チルド室", StorageLocation.FRIDGE, CompartmentForm.DRAWER, 100, 52, 3),
+        comp("c-ice", UNIT_FRIDGE, "製氷室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 50, 52, 4),
+        comp("c-freezer-s", UNIT_FRIDGE, "小さな冷凍室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 50, 52, 5),
+        comp("c-veg", UNIT_FRIDGE, "野菜室", StorageLocation.VEGETABLE_DRAWER, CompartmentForm.DRAWER, 100, 76, 6),
+        comp("c-freezer", UNIT_FRIDGE, "冷凍室", StorageLocation.FREEZER, CompartmentForm.DRAWER, 100, 76, 7),
+        comp("c-pantry", UNIT_PANTRY, "棚", StorageLocation.ROOM_TEMP, CompartmentForm.SHELF, 100, 72, 0),
     )
 
     /**
@@ -59,10 +59,10 @@ object DefaultLayout {
         name: String,
         location: StorageLocation,
         form: CompartmentForm,
-        span: Int,
-        size: Int,
+        widthPercent: Int,
+        heightDp: Int,
         sortOrder: Int,
-    ) = CompartmentEntity(id, unitId, name, location, form, span, size, sortOrder)
+    ) = CompartmentEntity(id, unitId, name, location, form, widthPercent, heightDp, null, sortOrder)
 
     private fun item(
         name: String,

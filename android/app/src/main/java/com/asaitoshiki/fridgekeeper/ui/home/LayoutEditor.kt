@@ -153,18 +153,30 @@ private fun CompartmentEditor(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(onClick = { onSave(compartment.copy(span = if (compartment.span == 1) 2 else 1)) }) {
-                Text(if (compartment.span == 1) "半分" else "全幅")
-            }
             OutlinedButton(
-                onClick = { onSave(compartment.copy(size = (compartment.size - 1).coerceAtLeast(1))) },
-                enabled = compartment.size > 1,
-            ) { Text("−") }
-            Text("高さ ${compartment.size}", style = MaterialTheme.typography.labelMedium)
+                onClick = { onSave(compartment.copy(widthPercent = (compartment.widthPercent - 25).coerceAtLeast(25))) },
+                enabled = compartment.widthPercent > 25,
+            ) { Text("幅 −") }
+            Text("${compartment.widthPercent}%", style = MaterialTheme.typography.labelMedium)
             OutlinedButton(
-                onClick = { onSave(compartment.copy(size = (compartment.size + 1).coerceAtMost(4))) },
-                enabled = compartment.size < 4,
-            ) { Text("＋") }
+                onClick = { onSave(compartment.copy(widthPercent = (compartment.widthPercent + 25).coerceAtMost(100))) },
+                enabled = compartment.widthPercent < 100,
+            ) { Text("幅 ＋") }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = { onSave(compartment.copy(heightDp = (compartment.heightDp - 12).coerceAtLeast(36))) },
+                enabled = compartment.heightDp > 36,
+            ) { Text("高さ −") }
+            Text("${compartment.heightDp}", style = MaterialTheme.typography.labelMedium)
+            OutlinedButton(
+                onClick = { onSave(compartment.copy(heightDp = (compartment.heightDp + 12).coerceAtMost(220))) },
+                enabled = compartment.heightDp < 220,
+            ) { Text("高さ ＋") }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

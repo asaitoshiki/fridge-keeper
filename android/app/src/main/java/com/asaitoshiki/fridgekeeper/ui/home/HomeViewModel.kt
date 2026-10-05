@@ -147,7 +147,7 @@ class HomeViewModel @Inject constructor(
     fun addUnit() = viewModelScope.launch {
         val id = "unit-${UUID.randomUUID()}"
         storageRepository.saveUnit(
-            StorageUnitEntity(id, "新しい収納", StorageUnitType.SHELF, uiState.value.units.size),
+            StorageUnitEntity(id, "新しい収納", StorageUnitType.SHELF, null, uiState.value.units.size),
         )
         storageRepository.saveCompartment(
             CompartmentEntity(
@@ -156,8 +156,9 @@ class HomeViewModel @Inject constructor(
                 name = "棚",
                 location = StorageLocation.ROOM_TEMP,
                 form = CompartmentForm.SHELF,
-                span = 2,
-                size = 2,
+                widthPercent = 100,
+                heightDp = 68,
+                colorArgb = null,
                 sortOrder = 0,
             ),
         )
@@ -183,8 +184,9 @@ class HomeViewModel @Inject constructor(
                 name = "新しい段",
                 location = StorageLocation.FRIDGE,
                 form = CompartmentForm.SHELF,
-                span = 2,
-                size = 2,
+                widthPercent = 100,
+                heightDp = 68,
+                colorArgb = null,
                 sortOrder = view.compartments.size,
             ),
         )

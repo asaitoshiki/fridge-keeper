@@ -10,11 +10,12 @@ import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
 /**
  * 筐体の中の段・引き出しひとつ分。
  *
- * location だけが期限の目安に効く。name・form・span・size は見た目を決めるだけなので、
- * ユーザーが段をいくつ作っても、形をどう変えても期限の計算は壊れない。
+ * location だけが期限の目安に効く。name・form・widthPercent・heightDp・colorArgb は
+ * 見た目を決めるだけなので、段をいくつ作っても、形や色をどう変えても期限の計算は壊れない。
  *
- * span 2=全幅 / 1=半分（隣の半幅の段と横に並ぶ）
- * size 1..4 の高さ
+ * widthPercent 幅の割合。合計が100を超えたところで次の行へ折り返す
+ * heightDp     高さ
+ * colorArgb    庫内の色。null なら既定の配色に従う
  */
 @Entity(
     tableName = "compartments",
@@ -35,7 +36,8 @@ data class CompartmentEntity(
     val name: String,
     val location: StorageLocation,
     val form: CompartmentForm,
-    val span: Int,
-    val size: Int,
+    val widthPercent: Int,
+    val heightDp: Int,
+    val colorArgb: Long?,
     val sortOrder: Int,
 )

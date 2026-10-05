@@ -20,6 +20,10 @@ interface FoodItemDao {
     @Query("SELECT * FROM food_items")
     fun observeAll(): Flow<List<FoodItemEntity>>
 
+    /** よく買うもの。あとに登録したものほど前に出す */
+    @Query("SELECT name FROM food_items GROUP BY name ORDER BY MAX(id) DESC LIMIT 8")
+    fun observeRecentNames(): Flow<List<String>>
+
     @Query("SELECT COUNT(*) FROM food_items")
     suspend fun count(): Int
 
