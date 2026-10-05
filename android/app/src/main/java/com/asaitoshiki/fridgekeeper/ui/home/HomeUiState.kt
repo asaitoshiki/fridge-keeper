@@ -1,10 +1,14 @@
 package com.asaitoshiki.fridgekeeper.ui.home
 
 import com.asaitoshiki.fridgekeeper.data.local.entity.CompartmentEntity
+import com.asaitoshiki.fridgekeeper.data.local.entity.ConsumptionLogEntity
 import com.asaitoshiki.fridgekeeper.data.local.entity.FoodItemEntity
+import com.asaitoshiki.fridgekeeper.data.local.entity.ShoppingItemEntity
 import com.asaitoshiki.fridgekeeper.data.local.entity.StorageUnitEntity
+import com.asaitoshiki.fridgekeeper.data.settings.AppSettings
 import com.asaitoshiki.fridgekeeper.domain.expiry.ExpiryStatus
 import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
+import com.asaitoshiki.fridgekeeper.domain.stats.ConsumptionStats
 import java.time.LocalDate
 
 /** 食材ひとつと、そのときの期限の状態。画面はこれだけを見れば描ける */
@@ -23,11 +27,16 @@ data class UnitView(
     val compartments: List<CompartmentView>,
 )
 
-enum class HomeTab { FRIDGE, EXPIRY }
+/** 画面下部のタブ。冷蔵庫の中身を見る以外の役割をここで分ける */
+enum class AppTab { FRIDGE, SHOPPING, NOTICES, REPORT, SETTINGS }
+
+/** 冷蔵庫タブの中の見せ方。図で探すか、期限の近い順に並べて見るか */
+enum class FridgeMode { FIGURE, EXPIRY }
 
 data class HomeUiState(
     val today: LocalDate = LocalDate.now(),
-    val tab: HomeTab = HomeTab.FRIDGE,
+    val tab: AppTab = AppTab.FRIDGE,
+    val fridgeMode: FridgeMode = FridgeMode.FIGURE,
     val editingLayout: Boolean = false,
     val locationFilter: StorageLocation? = null,
     val units: List<UnitView> = emptyList(),
@@ -38,11 +47,24 @@ data class HomeUiState(
     /** 閾値日数以内に期限を迎える食材。開いた瞬間に伝えるためのもの */
     val urgent: List<ItemCard> = emptyList(),
     val totalCount: Int = 0,
+    /** 食品ロスなし継続日数と、これまでの最長 */
+    val streak: Long = 0L,
+    val bestStreak: Int = 0,
+    val logs: List<ConsumptionLogEntity> = emptyList(),
+    val stats7: ConsumptionStats = EMPTY_STATS,
+    val stats30: ConsumptionStats = EMPTY_STATS,
+    val shopping: List<ShoppingItemEntity> = emptyList(),
+    /** 一押しで足せる「よく買うもの」 */
+    val recentNames: List<String> = emptyList(),
+    val settings: AppSettings = AppSettings(),
 ) {
     val filteredByExpiry: List<ItemCard>
         get() = locationFilter?.let { filter ->
             byExpiry.filter { locationOf(it.item) == filter }
         } ?: byExpiry
+
+    /** 期限超過。お知らせタブで真っ先に出す */
+    val expired: List<ItemCard> get() = byExpiry.filter { (it.status.daysLeft ?: 0L) < 0L }
 
     private val locationByCompartment: Map<String, StorageLocation> =
         units.flatMap { it.compartments }.associate { it.compartment.id to it.compartment.location }
@@ -65,3 +87,5 @@ data class HomeUiState(
     fun countIn(location: StorageLocation): Int =
         byExpiry.count { locationOf(it.item) == location }
 }
+
+private val EMPTY_STATS = ConsumptionStats(0, 0, null, emptyList())

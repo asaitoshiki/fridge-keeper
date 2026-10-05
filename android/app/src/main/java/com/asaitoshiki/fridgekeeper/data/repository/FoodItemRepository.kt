@@ -13,6 +13,9 @@ class FoodItemRepository @Inject constructor(
 ) {
     fun observeAll(): Flow<List<FoodItemEntity>> = foodItemDao.observeAll()
 
+    /** 一押しで足せるようにする「よく買うもの」の候補 */
+    fun observeRecentNames(): Flow<List<String>> = foodItemDao.observeRecentNames()
+
     suspend fun add(item: FoodItemEntity): Long = foodItemDao.insert(item)
 
     suspend fun update(item: FoodItemEntity) = foodItemDao.update(item)

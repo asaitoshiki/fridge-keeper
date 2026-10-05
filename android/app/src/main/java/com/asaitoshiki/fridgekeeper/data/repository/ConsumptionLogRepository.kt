@@ -22,4 +22,6 @@ class ConsumptionLogRepository @Inject constructor(
     suspend fun record(log: ConsumptionLogEntity): Long = consumptionLogDao.insert(log)
 
     suspend fun delete(log: ConsumptionLogEntity) = consumptionLogDao.delete(log)
+
+    suspend fun deleteById(logId: Long) = consumptionLogDao.deleteById(logId)
 }

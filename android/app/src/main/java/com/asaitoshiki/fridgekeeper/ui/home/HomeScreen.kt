@@ -3,9 +3,7 @@
 package com.asaitoshiki.fridgekeeper.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -22,16 +19,30 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +53,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -55,13 +67,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.asaitoshiki.fridgekeeper.data.local.entity.FoodItemEntity
 import com.asaitoshiki.fridgekeeper.domain.expiry.ExpiryUrgency
 import com.asaitoshiki.fridgekeeper.domain.model.ExpiryType
-import com.asaitoshiki.fridgekeeper.domain.model.StorageLocation
+import com.asaitoshiki.fridgekeeper.domain.model.FoodCategory
 import com.asaitoshiki.fridgekeeper.ui.jp
-import com.asaitoshiki.fridgekeeper.ui.label
-import com.asaitoshiki.fridgekeeper.ui.remainingLabel
 import com.asaitoshiki.fridgekeeper.ui.theme.LocalIsDarkTheme
 import com.asaitoshiki.fridgekeeper.ui.theme.urgencyBarColor
 import com.asaitoshiki.fridgekeeper.ui.theme.urgencyTextColor
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** ドラッグ中、画面のこの範囲に指が来たら送る */
@@ -71,12 +82,30 @@ private const val EDGE_SPEED_PX = 26f
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val undo by viewModel.undo.collectAsStateWithLifecycle()
     val drag = remember { FridgeDragState() }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
+    val snackbar = remember { SnackbarHostState() }
 
     var editing by remember { mutableStateOf<FoodItemEntity?>(null) }
     var confirm by remember { mutableStateOf<ConfirmRequest?>(null) }
+
+    val actions = remember(viewModel) {
+        ItemActions(
+            onOpen = { editing = it },
+            onEatOne = viewModel::eatOne,
+            onEatAll = viewModel::eatAll,
+            onDiscard = viewModel::discard,
+        )
+    }
+
+    /* 食べた・捨てたは指の滑りでも起きるので、必ず戻せることをその場で見せる */
+    LaunchedEffect(undo) {
+        val prompt = undo ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(prompt.text, actionLabel = "もどす")
+        if (result == SnackbarResult.ActionPerformed) viewModel.runUndo(prompt) else viewModel.dismissUndo()
+    }
 
     /* 冷蔵庫は一画面に収まらないので、端まで運んだら画面を送る */
     LaunchedEffect(drag.dragging) {
@@ -94,15 +123,44 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     }
 
     Scaffold(
-        floatingActionButton = {
-            if (!state.editingLayout) {
-                ExtendedFloatingActionButton(
-                    onClick = { editing = newItem() },
-                    text = { Text("食材を追加") },
-                    icon = { Text("＋", fontSize = 18.sp) },
-                )
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = state.tab.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                actions = {
+                    Text(
+                        text = "${state.totalCount} 件",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 16.dp),
+                    )
+                },
+            )
+        },
+        bottomBar = {
+            Column {
+                /* 買ってきたものをその場で放り込める入口。冷蔵庫を見ているときだけ出す */
+                if (state.tab == AppTab.FRIDGE && !state.editingLayout) {
+                    QuickAddBar(state, onAdd = viewModel::quickAdd, onOpenEditor = { editing = newItem() })
+                }
+                NavigationBar {
+                    AppTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = state.tab == tab,
+                            onClick = { viewModel.selectTab(tab) },
+                            icon = { Icon(tab.icon, contentDescription = tab.title) },
+                            label = { Text(tab.title, fontSize = 10.sp) },
+                        )
+                    }
+                }
             }
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { insets ->
         Box(
             Modifier
@@ -115,49 +173,74 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                     .fillMaxSize()
                     .verticalScroll(scroll)
                     .padding(horizontal = 16.dp)
-                    .padding(top = 16.dp, bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                    .padding(top = 14.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Masthead(state)
-                if (state.totalCount > 0) SummaryCard(state)
-                TabBar(
-                    state = state,
-                    onSelectTab = viewModel::selectTab,
-                    onToggleEditing = viewModel::toggleLayoutEditing,
-                )
+                when (state.tab) {
+                    AppTab.FRIDGE -> {
+                        if (state.totalCount > 0) SummaryCard(state)
+                        StreakLine(state)
+                        FridgeModeBar(
+                            state = state,
+                            onSelectMode = viewModel::setFridgeMode,
+                            onToggleEditing = viewModel::toggleLayoutEditing,
+                        )
+                        when {
+                            state.editingLayout -> LayoutEditor(
+                                state = state,
+                                onSaveCompartment = viewModel::saveCompartment,
+                                onMoveCompartment = viewModel::moveCompartment,
+                                onDeleteCompartment = { id ->
+                                    confirm = confirmDeleteCompartment(state, id) {
+                                        viewModel.deleteCompartment(id)
+                                    }
+                                },
+                                onAddCompartment = viewModel::addCompartment,
+                                onRenameUnit = viewModel::renameUnit,
+                                onSetUnitType = viewModel::setUnitType,
+                                onDeleteUnit = { id ->
+                                    confirm = confirmDeleteUnit(state, id) { viewModel.deleteUnit(id) }
+                                },
+                                onAddUnit = viewModel::addUnit,
+                            )
 
-                when {
-                    state.editingLayout -> LayoutEditor(
+                            state.fridgeMode == FridgeMode.FIGURE -> FridgeView(
+                                state = state,
+                                drag = drag,
+                                onOpenItem = { editing = it },
+                                onDrop = viewModel::move,
+                            )
+
+                            else -> ExpiryPane(
+                                state = state,
+                                actions = actions,
+                                onSelectFilter = viewModel::setLocationFilter,
+                            )
+                        }
+                        Disclaimer()
+                    }
+
+                    AppTab.SHOPPING -> ShoppingPane(
                         state = state,
-                        onSaveCompartment = viewModel::saveCompartment,
-                        onMoveCompartment = viewModel::moveCompartment,
-                        onDeleteCompartment = { id ->
-                            confirm = confirmDeleteCompartment(state, id) { viewModel.deleteCompartment(id) }
-                        },
-                        onAddCompartment = viewModel::addCompartment,
-                        onRenameUnit = viewModel::renameUnit,
-                        onSetUnitType = viewModel::setUnitType,
-                        onDeleteUnit = { id ->
-                            confirm = confirmDeleteUnit(state, id) { viewModel.deleteUnit(id) }
-                        },
-                        onAddUnit = viewModel::addUnit,
+                        onAdd = viewModel::addShopping,
+                        onToggle = viewModel::toggleShopping,
+                        onDelete = viewModel::deleteShopping,
+                        onStockUp = viewModel::stockUpShopping,
+                        onClearDone = viewModel::clearDoneShopping,
                     )
 
-                    state.tab == HomeTab.FRIDGE -> FridgeView(
-                        state = state,
-                        drag = drag,
-                        onOpenItem = { editing = it },
-                        onDrop = viewModel::move,
-                    )
+                    AppTab.NOTICES -> {
+                        NoticesPane(state, actions)
+                        Disclaimer()
+                    }
 
-                    else -> ExpiryList(
-                        state = state,
-                        onSelectFilter = viewModel::setLocationFilter,
-                        onOpenItem = { editing = it },
-                    )
+                    AppTab.REPORT -> ReportPane(state)
+
+                    AppTab.SETTINGS -> {
+                        SettingsPane(state, onSaveNotify = viewModel::saveNotify)
+                        Disclaimer()
+                    }
                 }
-
-                Disclaimer()
             }
 
             /* つまんでいる最中の見え方。指の位置に付いてくる */
@@ -169,7 +252,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 6.dp,
                     shadowElevation = 8.dp,
-                    modifier = Modifier.offsetPx(x - 40, y - 18),
+                    modifier = Modifier.offset { IntOffset(x - 40, y - 18) },
                 ) {
                     Text(
                         text = drag.label,
@@ -211,42 +294,138 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     }
 }
 
-private fun Modifier.offsetPx(x: Int, y: Int): Modifier = this.offset { IntOffset(x, y) }
+private val AppTab.title: String
+    get() = when (this) {
+        AppTab.FRIDGE -> "冷蔵庫"
+        AppTab.SHOPPING -> "買い物"
+        AppTab.NOTICES -> "お知らせ"
+        AppTab.REPORT -> "レポート"
+        AppTab.SETTINGS -> "設定"
+    }
+
+private val AppTab.icon: ImageVector
+    get() = when (this) {
+        AppTab.FRIDGE -> Icons.Filled.Home
+        AppTab.SHOPPING -> Icons.Filled.ShoppingCart
+        AppTab.NOTICES -> Icons.Filled.Notifications
+        AppTab.REPORT -> Icons.Filled.List
+        AppTab.SETTINGS -> Icons.Filled.Settings
+    }
 
 private fun newItem(): FoodItemEntity = FoodItemEntity(
     id = 0L,
     name = "",
-    category = com.asaitoshiki.fridgekeeper.domain.model.FoodCategory.VEGETABLE,
+    category = FoodCategory.VEGETABLE,
     compartmentId = null,
     expiryType = ExpiryType.BEST_BEFORE,
     expiryDate = null,
     quantity = 1,
-    registeredAt = java.time.LocalDate.now(),
+    registeredAt = LocalDate.now(),
     janCode = null,
     memo = null,
 )
 
-/* --- 見出し ------------------------------------------------------------- */
+/* --- 下の入力バー --------------------------------------------------------- */
+
+/**
+ * 名前だけ打ち込んで放り込むバー。
+ * 買ってきたものを一気に登録するときは、期限もカテゴリも後回しにできたほうが早い。
+ */
+@Composable
+private fun QuickAddBar(
+    state: HomeUiState,
+    onAdd: (String) -> Unit,
+    onOpenEditor: () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+
+    Surface(tonalElevation = 2.dp) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            if (state.recentNames.isNotEmpty() && input.isBlank()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.recentNames.take(3).forEach { name ->
+                        OutlinedButton(
+                            onClick = { onAdd(name) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                horizontal = 6.dp,
+                                vertical = 4.dp,
+                            ),
+                        ) {
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("食材を入れる", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(
+                    onClick = {
+                        onAdd(input)
+                        input = ""
+                    },
+                    enabled = input.isNotBlank(),
+                ) { Text("入れる") }
+                TextButton(onClick = onOpenEditor) { Text("詳しく") }
+            }
+        }
+    }
+}
+
+/* --- 冷蔵庫タブの見出し --------------------------------------------------- */
 
 @Composable
-private fun Masthead(state: HomeUiState) {
+private fun FridgeModeBar(
+    state: HomeUiState,
+    onSelectMode: (FridgeMode) -> Unit,
+    onToggleEditing: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "冷蔵庫キーパー",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "${state.totalCount} 件",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        SingleChoiceSegmentedButtonRow {
+            SegmentedButton(
+                selected = state.fridgeMode == FridgeMode.FIGURE && !state.editingLayout,
+                onClick = { onSelectMode(FridgeMode.FIGURE) },
+                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("図", style = MaterialTheme.typography.labelMedium) }
+            SegmentedButton(
+                selected = state.fridgeMode == FridgeMode.EXPIRY && !state.editingLayout,
+                onClick = { onSelectMode(FridgeMode.EXPIRY) },
+                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("期限順", style = MaterialTheme.typography.labelMedium) }
+        }
+        if (state.fridgeMode == FridgeMode.FIGURE) {
+            TextButton(onClick = onToggleEditing) {
+                Text(if (state.editingLayout) "編集を終える" else "配置を編集")
+            }
+        }
     }
 }
+
+/* --- 見出しのまとめ ------------------------------------------------------- */
 
 /**
  * 開いた瞬間に全体の状況が分かるようにする。
@@ -296,7 +475,7 @@ private fun SummaryCard(state: HomeUiState) {
                 )
                 val names = state.urgent.take(3).joinToString("、") { it.item.name }
                 val rest = if (state.urgent.size > 3) " 他${state.urgent.size - 3}件" else ""
-                val expired = state.urgent.count { (it.status.daysLeft ?: 0L) < 0L }
+                val expired = state.expired.size
                 Text(
                     text = names + rest + if (expired > 0) "／うち期限超過 ${expired}件" else "",
                     style = MaterialTheme.typography.bodySmall,
@@ -307,144 +486,15 @@ private fun SummaryCard(state: HomeUiState) {
     }
 }
 
+/** 続いている日数。レポートを開かなくても目に入る場所に一行だけ置く */
 @Composable
-private fun TabBar(
-    state: HomeUiState,
-    onSelectTab: (HomeTab) -> Unit,
-    onToggleEditing: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(
-                selected = state.tab == HomeTab.FRIDGE && !state.editingLayout,
-                onClick = { onSelectTab(HomeTab.FRIDGE) },
-                label = { Text("冷蔵庫") },
-            )
-            FilterChip(
-                selected = state.tab == HomeTab.EXPIRY && !state.editingLayout,
-                onClick = { onSelectTab(HomeTab.EXPIRY) },
-                label = { Text("期限順") },
-            )
-        }
-        if (state.tab == HomeTab.FRIDGE) {
-            OutlinedButton(onClick = onToggleEditing) {
-                Text(if (state.editingLayout) "編集を終える" else "配置を編集")
-            }
-        }
-    }
-}
-
-/* --- 期限順リスト --------------------------------------------------------- */
-
-@Composable
-private fun ExpiryList(
-    state: HomeUiState,
-    onSelectFilter: (StorageLocation?) -> Unit,
-    onOpenItem: (FoodItemEntity) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FilterChip(
-                selected = state.locationFilter == null,
-                onClick = { onSelectFilter(null) },
-                label = { Text("すべて ${state.totalCount}") },
-                colors = FilterChipDefaults.filterChipColors(),
-            )
-            StorageLocation.entries.forEach { location ->
-                FilterChip(
-                    selected = state.locationFilter == location,
-                    onClick = { onSelectFilter(location) },
-                    label = { Text("${location.label} ${state.countIn(location)}") },
-                )
-            }
-        }
-
-        val items = state.filteredByExpiry
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
-        ) {
-            if (items.isEmpty()) {
-                Text(
-                    text = "ここには何もありません",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(28.dp),
-                )
-            }
-            items.forEachIndexed { index, card ->
-                if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                ExpiryRow(state, card, onOpenItem)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExpiryRow(state: HomeUiState, card: ItemCard, onOpenItem: (FoodItemEntity) -> Unit) {
-    val dark = LocalIsDarkTheme.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min),
-    ) {
-        Box(
-            Modifier
-                .width(4.dp)
-                .fillMaxHeight()
-                .background(urgencyBarColor(card.status.urgency, dark)),
-        )
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Text(
-                text = card.item.name + if (card.item.quantity > 1) "  ×${card.item.quantity}" else "",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "${state.compartmentPath(card.item.compartmentId)}・${card.item.category.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (card.status.estimated && card.status.date != null) EstimateBadge()
-                if (card.item.expiryType == ExpiryType.USE_BY) UseByBadge()
-            }
-        }
-        Column(
-            Modifier.padding(end = 14.dp, top = 12.dp, bottom = 12.dp),
-            horizontalAlignment = Alignment.End,
-        ) {
-            Text(
-                text = card.status.remainingLabel(),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = urgencyTextColor(card.status.urgency, dark),
-            )
-            Text(
-                text = card.status.date?.jp() ?: "—",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TextButton(onClick = { onOpenItem(card.item) }) { Text("編集") }
-    }
+private fun StreakLine(state: HomeUiState) {
+    Text(
+        text = "食品ロスなし ${state.streak}日目（最長 ${state.bestStreak}日）",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

@@ -29,4 +29,8 @@ interface ConsumptionLogDao {
     /** Undo で消費・廃棄の記録を取り消すために使う */
     @Delete
     suspend fun delete(log: ConsumptionLogEntity)
+
+    /** Undo の時点では記録の中身を持っていないので、採番された id だけで消す */
+    @Query("DELETE FROM consumption_logs WHERE id = :logId")
+    suspend fun deleteById(logId: Long)
 }
