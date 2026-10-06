@@ -20,6 +20,11 @@
   let selection = { type: 'comp', id: null };
   let kindFilter = 'ALL';
   let editingId = null;
+  /* 読み取り中のカメラと、読めたときの行き先。閉じるときに必ず止める */
+  let scanMode = null;
+  let scanStream = null;
+  let scanTimer = null;
+  let scanDone = null;
 
   /* タブのアイコン。太さと大きさを揃えて、並べたときに粒が揃うようにしてある */
   const ICON_FRIDGE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M6 10h12"/><path d="M9 6.5v2"/><path d="M9 13v2.5"/></svg>';
@@ -29,15 +34,19 @@
   const ICON_GEAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M18 6l-1.4 1.4M7.4 16.6 6 18M18 18l-1.4-1.4M7.4 7.4 6 6"/></svg>';
   const ICON_CART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-1.6 9.2a2 2 0 0 1-2 1.8H7.6a2 2 0 0 1-2-1.8z"/><path d="M9 7V5.5A3 3 0 0 1 15 5.5V7"/></svg>';
 
+  const ICON_SCAN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 8.5v7M11 8.5v7M14.5 8.5v7M17.5 8.5v7"/></svg>';
+
   const root = document.getElementById('app');
   const dialog = buildDialog();
   const confirmDialog = buildConfirmDialog();
   const actionDialog = buildActionDialog();
   const shareDialog = buildShareDialog();
+  const scanDialog = buildScanDialog();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
   document.body.appendChild(shareDialog);
+  document.body.appendChild(scanDialog);
 
   render();
 
@@ -454,7 +463,7 @@
           ? '<p class="buy-empty">買うものを書いておくと、まとめて家族へ送れます。</p>'
           : `<div class="buy-list">${rows}</div>`}
         <div class="buy-actions">
-          <button class="btn btn-ghost" type="button" id="share-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
+          <button class="btn btn-primary" type="button" id="share-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
             買い物リストを送る
           </button>
           <button class="btn btn-ghost" type="button" id="clear-bought" ${state.shopping.some((e) => e.done) ? '' : 'disabled'}>
@@ -466,7 +475,14 @@
           <h3>家族に送る</h3>
           <p>LINE やメールなど、ふだん使っているもので送れます。送り先はこの端末が選ぶので、
              アプリが外部へデータを預けることはありません。</p>
-          <button class="btn btn-ghost" type="button" id="share-fridge">冷蔵庫の様子を送る</button>
+          <div class="buy-actions">
+            <button class="btn btn-ghost" type="button" id="text-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
+              買い物リストを文面にする
+            </button>
+            <button class="btn btn-ghost" type="button" id="share-fridge">冷蔵庫の様子を送る</button>
+            <button class="btn btn-ghost" type="button" id="text-fridge">冷蔵庫の様子を文面にする</button>
+          </div>
+          <p class="hint">共有シートが開けない端末でも、文面にすればコピーして貼り付けられます。</p>
         </div>
       </section>`;
   }
@@ -523,10 +539,9 @@
   }
 
   function showShareFallback(text) {
-    const area = shareDialog.querySelector('#share-text');
-    area.value = text;
-    shareDialog.showModal();
-    area.select();
+    showShareText('送る文面', text);
+    shareDialog.querySelector('#share-lead').textContent =
+      'この端末では共有シートを開けませんでした。文面をコピーして貼り付けてください。';
   }
 
   function toast(message) {
@@ -564,6 +579,7 @@
         ${names.length > 0 ? `<div class="quick-templates">${chips}</div>` : ''}
         <form class="quick-add" id="quick-form">
           <input type="text" id="quick-input" placeholder="買ってきたものを入れる" autocomplete="off">
+          <button class="quick-scan" type="button" id="quick-barcode" aria-label="バーコードを読む">${ICON_SCAN}</button>
           <button class="quick-go" type="submit" aria-label="入れる">入れる</button>
           <button class="quick-more" type="button" id="open-full" aria-label="詳しく入力">詳しく</button>
         </form>
@@ -659,6 +675,13 @@
     const openFull = root.querySelector('#open-full');
     if (openFull) openFull.addEventListener('click', () => openEditor(null));
 
+    const quickBarcode = root.querySelector('#quick-barcode');
+    if (quickBarcode) {
+      quickBarcode.addEventListener('click', () => {
+        openScan('barcode', (result) => applyJan(result.jan));
+      });
+    }
+
     const buyForm = root.querySelector('#buy-form');
     if (buyForm) {
       buyForm.addEventListener('submit', (event) => {
@@ -693,6 +716,16 @@
     const shareShopping = root.querySelector('#share-shopping');
     if (shareShopping) {
       shareShopping.addEventListener('click', () => shareText('買い物リスト', shoppingShareText()));
+    }
+
+    const textShopping = root.querySelector('#text-shopping');
+    if (textShopping) {
+      textShopping.addEventListener('click', () => showShareText('買い物リストの文面', shoppingShareText()));
+    }
+
+    const textFridge = root.querySelector('#text-fridge');
+    if (textFridge) {
+      textFridge.addEventListener('click', () => showShareText('冷蔵庫の様子の文面', fridgeShareText(today)));
     }
 
     const clearBought = root.querySelector('#clear-bought');
@@ -1143,16 +1176,49 @@
     el.id = 'share-fallback';
     el.innerHTML = `
       <div class="sheet-form">
-        <div class="form-head"><h2>送る文面</h2></div>
-        <p class="hint">この端末では共有シートを開けませんでした。下の文面を選んでコピーし、
-           送りたいアプリに貼り付けてください。</p>
+        <div class="form-head">
+          <h2 id="share-title">送る文面</h2>
+          <button class="icon-btn" type="button" data-close aria-label="閉じる">×</button>
+        </div>
+        <p class="hint" id="share-lead"></p>
         <textarea id="share-text" rows="9" readonly></textarea>
         <div class="form-actions">
-          <button class="btn btn-primary" type="button" data-close>閉じる</button>
+          <button class="btn btn-primary" type="button" id="share-copy">コピーする</button>
+          <button class="btn btn-ghost" type="button" data-close>閉じる</button>
         </div>
       </div>`;
-    el.querySelector('[data-close]').addEventListener('click', () => el.close());
+    el.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', () => el.close()));
+    el.querySelector('#share-copy').addEventListener('click', copyShareText);
     return el;
+  }
+
+  /**
+   * 文面をそのまま見せる。
+   * 共有シートもクリップボードも使えない端末があるので、
+   * 最後は「選んで手で貼り付ける」ところまで必ず辿り着けるようにしておく。
+   */
+  function showShareText(title, text) {
+    const area = shareDialog.querySelector('#share-text');
+    shareDialog.querySelector('#share-title').textContent = title;
+    shareDialog.querySelector('#share-lead').textContent =
+      'この文面をコピーして、LINE やメールに貼り付けてください。';
+    area.value = text;
+    shareDialog.showModal();
+    area.select();
+  }
+
+  async function copyShareText() {
+    const area = shareDialog.querySelector('#share-text');
+    area.select();
+    try {
+      await navigator.clipboard.writeText(area.value);
+      shareDialog.querySelector('#share-lead').textContent = 'コピーしました。貼り付けて送ってください。';
+      return;
+    } catch (error) {
+      /* クリップボードが使えない端末では、選択済みの文面を手で写してもらう */
+      shareDialog.querySelector('#share-lead').textContent =
+        'コピーできませんでした。文面を選んだ状態にしてあるので、長押しでコピーしてください。';
+    }
   }
 
   /* --- 入力ダイアログ --------------------------------------------------- */
@@ -1169,7 +1235,11 @@
 
         <div class="field">
           <label for="f-name">商品名</label>
-          <input id="f-name" name="name" type="text" required autocomplete="off" placeholder="にんじん">
+          <div class="field-with-scan">
+            <input id="f-name" name="name" type="text" required autocomplete="off" placeholder="にんじん">
+            <button class="btn btn-ghost btn-scan" type="button" id="scan-barcode">${ICON_SCAN}バーコード</button>
+          </div>
+          <input id="f-jan" name="janCode" type="hidden">
         </div>
 
         <div class="field-pair">
@@ -1201,10 +1271,14 @@
           </div>
           <div class="field">
             <label for="f-date">期限日 <span class="optional">任意</span></label>
-            <input id="f-date" name="expiryDate" type="date">
+            <div class="field-with-scan">
+              <input id="f-date" name="expiryDate" type="date">
+              <button class="btn btn-ghost btn-scan" type="button" id="scan-expiry">${ICON_SCAN}読む</button>
+            </div>
           </div>
         </div>
 
+        <p class="scan-result" id="editor-note" hidden></p>
         <div class="hint" id="f-hint"></div>
 
         <div class="field">
@@ -1221,6 +1295,13 @@
     el.querySelector('#editor-close').addEventListener('click', () => el.close());
     el.querySelector('#editor-form').addEventListener('submit', onSubmit);
     el.querySelector('#editor-delete').addEventListener('click', onDelete);
+    /* 入力の途中から読み取りへ寄り道して、戻ってきた値を欄に入れる */
+    el.querySelector('#scan-barcode').addEventListener('click', () => {
+      openScan('barcode', (result) => applyJan(result.jan));
+    });
+    el.querySelector('#scan-expiry').addEventListener('click', () => {
+      openScan('expiry', (result) => applyExpiry(result.expiry));
+    });
     ['f-category', 'f-place', 'f-date'].forEach((id) => {
       el.querySelector(`#${id}`).addEventListener('change', updateHint);
     });
@@ -1251,6 +1332,8 @@
     dialog.querySelector('#f-quantity').value = item ? item.quantity : 1;
     dialog.querySelector('#f-date').value = item && item.expiryDate ? item.expiryDate : '';
     dialog.querySelector('#f-memo').value = item && item.memo ? item.memo : '';
+    dialog.querySelector('#f-jan').value = item && item.janCode ? item.janCode : '';
+    setEditorNote('');
 
     updateHint();
     dialog.showModal();
@@ -1302,13 +1385,19 @@
       expiryDate: f.expiryDate.value || null,
       quantity: Math.max(1, Number(f.quantity.value) || 1),
       memo: f.memo.value.trim() || null,
+      janCode: f.janCode.value || null,
     };
+
+    /* 読ませたバーコードと名前の組を覚える。次に同じ商品を買ったとき手で打たずに済む */
+    if (values.janCode) {
+      state.janNames[values.janCode] = { name: values.name, category: values.category };
+    }
 
     const existing = editingId ? state.items.find((i) => i.id === editingId) : null;
     if (existing) {
       Object.assign(existing, values);
     } else {
-      state.items.push({ id: newId('item'), registeredAt: todayIso(), janCode: null, ...values });
+      state.items.push({ id: newId('item'), registeredAt: todayIso(), ...values });
       rememberTemplate(values.name);
     }
 
@@ -1320,6 +1409,292 @@
     state.items = state.items.filter((i) => i.id !== editingId);
     dialog.close();
     commit();
+  }
+
+
+  /* --- 読み取り（バーコード・賞味期限） ----------------------------------- */
+
+  /**
+   * カメラから読む画面。
+   * 端末や埋め込み先によってカメラも認識も使えないことがあるので、
+   * 「写真から読む」と「手で入れる」を常に並べて、どこでも行き止まりにしない。
+   */
+  function buildScanDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'scanner';
+    el.innerHTML = `
+      <div class="sheet-form scan">
+        <div class="form-head">
+          <h2 id="scan-title">読み取り</h2>
+          <button class="icon-btn" type="button" id="scan-close" aria-label="閉じる">×</button>
+        </div>
+
+        <div class="scan-stage" id="scan-stage">
+          <video id="scan-video" playsinline muted autoplay></video>
+          <div class="scan-guide"><span id="scan-guide-label"></span></div>
+        </div>
+        <canvas id="scan-shot" hidden></canvas>
+
+        <p class="hint" id="scan-note"></p>
+
+        <div class="scan-actions">
+          <button class="btn btn-primary" type="button" id="scan-shoot">読み取る</button>
+          <label class="btn btn-ghost" for="scan-file">写真から読む</label>
+          <input type="file" id="scan-file" accept="image/*" capture="environment" hidden>
+        </div>
+
+        <div class="field scan-manual">
+          <label for="scan-input" id="scan-manual-label">手で入れる</label>
+          <div class="scan-manual-row">
+            <input id="scan-input" type="text" autocomplete="off">
+            <button class="btn btn-ghost" type="button" id="scan-manual-ok">これで進む</button>
+          </div>
+        </div>
+
+        <p class="hint scan-privacy">撮った画像も読み取った文字も、この端末の中だけで処理します。
+           どこにも送信しません。</p>
+      </div>`;
+
+    el.querySelector('#scan-close').addEventListener('click', closeScan);
+    el.addEventListener('cancel', closeScan);
+    el.querySelector('#scan-shoot').addEventListener('click', shootScan);
+    el.querySelector('#scan-file').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) readFromFile(file);
+    });
+    el.querySelector('#scan-manual-ok').addEventListener('click', submitManual);
+    return el;
+  }
+
+  const SCAN_COPY = {
+    barcode: {
+      title: 'バーコードを読む',
+      guide: 'バーコードを枠に合わせてください',
+      manual: '読めないときは、バーコードの下の数字を入れる',
+      placeholder: '4901234567894',
+      inputType: 'text',
+    },
+    expiry: {
+      title: '賞味期限を読む',
+      guide: '期限の印字を枠いっぱいに写してください',
+      manual: '読めないときは、期限日を入れる',
+      placeholder: '',
+      inputType: 'date',
+    },
+  };
+
+  /**
+   * 読み取りを開く。
+   * mode は 'barcode' か 'expiry'。読めた値は onResult へ渡し、
+   * 確定はさせずに呼び出し側が人に見せて確かめる（読み違いは必ず起こる）。
+   */
+  async function openScan(mode, onResult) {
+    scanMode = mode;
+    scanDone = onResult;
+
+    const copy = SCAN_COPY[mode];
+    const input = scanDialog.querySelector('#scan-input');
+    scanDialog.querySelector('#scan-title').textContent = copy.title;
+    scanDialog.querySelector('#scan-guide-label').textContent = copy.guide;
+    scanDialog.querySelector('#scan-manual-label').textContent = copy.manual;
+    input.type = copy.inputType;
+    input.placeholder = copy.placeholder;
+    input.value = '';
+    /* バーコードは見つけ次第に進むので、押すボタンは期限のときだけ出す */
+    scanDialog.querySelector('#scan-shoot').hidden = mode === 'barcode';
+    const fileLabel = scanDialog.querySelector('[for="scan-file"]');
+    fileLabel.classList.remove('btn-primary');
+    fileLabel.classList.add('btn-ghost');
+    scanDialog.querySelector('#scan-stage').hidden = false;
+
+    const support = Scan.support();
+    if (mode === 'barcode' && !support.barcode) {
+      setScanNote('この端末ではバーコードの読み取りに対応していません。写真から読むか、数字を手で入れてください。');
+    } else if (mode === 'expiry' && !support.text) {
+      /* 文字認識を落としてくることは先に伝える。黙って通信するアプリにはしない */
+      setScanNote('初回だけ文字認識の仕組みを読み込みます（約2MB）。読み込んだあとの処理は端末の中だけで行います。');
+    } else {
+      setScanNote('');
+    }
+
+    scanDialog.showModal();
+    await startScanCamera(support);
+  }
+
+  async function startScanCamera(support) {
+    const stage = scanDialog.querySelector('#scan-stage');
+    const video = scanDialog.querySelector('#scan-video');
+
+    if (!support.live) {
+      noCamera('この画面ではカメラを開けません。写真から読むか、手で入れてください。');
+      return;
+    }
+
+    try {
+      scanStream = await Scan.openStream();
+      video.srcObject = scanStream;
+      stage.hidden = false;
+      await video.play().catch(() => {});
+    } catch (error) {
+      noCamera('カメラを使えませんでした。写真から読むか、手で入れてください。');
+      return;
+    }
+
+    if (scanMode === 'barcode' && support.barcode) startBarcodeLoop(video);
+  }
+
+  /** カメラが無いときは「読み取る」を伏せ、写真から読む道だけを残す */
+  function noCamera(message) {
+    scanDialog.querySelector('#scan-stage').hidden = true;
+    scanDialog.querySelector('#scan-shoot').hidden = true;
+    /* 残った一本を目立たせる。btn-ghost を外さないと背景が透明のままになる */
+    scanDialog.querySelector('[for="scan-file"]').classList.remove('btn-ghost');
+    scanDialog.querySelector('[for="scan-file"]').classList.add('btn-primary');
+    setScanNote(message);
+  }
+
+  /** バーコードは連続で探す。枠に合った瞬間に進むほうが手数が少ない */
+  function startBarcodeLoop(video) {
+    const detector = Scan.barcodeDetector();
+    if (!detector) return;
+
+    let busy = false;
+    scanTimer = setInterval(async () => {
+      if (busy || video.readyState < 2) return;
+      busy = true;
+      const jan = await Scan.detectBarcode(detector, video);
+      busy = false;
+      if (jan) finishScan({ jan });
+    }, 220);
+  }
+
+  async function shootScan() {
+    const video = scanDialog.querySelector('#scan-video');
+    if (!scanStream || video.readyState < 2) {
+      setScanNote('カメラの映像がまだ出ていません。写真から読むか、手で入れてください。');
+      return;
+    }
+    await processSource(video, video.videoWidth, video.videoHeight);
+  }
+
+  async function readFromFile(file) {
+    try {
+      const image = await Scan.imageFromFile(file);
+      await processSource(image, image.naturalWidth, image.naturalHeight);
+    } catch (error) {
+      setScanNote('その画像は読めませんでした。別の写真で試してください。');
+    }
+  }
+
+  async function processSource(source, width, height) {
+    if (scanMode === 'barcode') {
+      const detector = Scan.barcodeDetector();
+      const canvas = Scan.prepare(source, width, height, false);
+      const jan = await Scan.detectBarcode(detector, canvas);
+      if (jan) {
+        finishScan({ jan });
+        return;
+      }
+      setScanNote('バーコードを読み取れませんでした。もう少し近づけるか、数字を手で入れてください。');
+      return;
+    }
+
+    setScanNote('読み取っています…');
+    try {
+      const canvas = Scan.prepare(source, width, height, true);
+      const text = await Scan.readText(canvas, setScanNote);
+      const found = Scan.parseExpiry(text, todayIso());
+      if (found) {
+        finishScan({ expiry: found });
+        return;
+      }
+      setScanNote('日付を見つけられませんでした。印字を枠いっぱいに写すか、日付を手で入れてください。');
+    } catch (error) {
+      setScanNote(`${error.message}。日付を手で入れてください。`);
+    }
+  }
+
+  function submitManual() {
+    const value = scanDialog.querySelector('#scan-input').value.trim();
+    if (!value) return;
+
+    if (scanMode === 'barcode') {
+      const jan = Scan.normalizeJan(value);
+      if (!jan) {
+        setScanNote('その番号はバーコードの数字として合いません。13桁か8桁を確かめてください。');
+        return;
+      }
+      finishScan({ jan });
+      return;
+    }
+    finishScan({ expiry: { date: value, expiryType: null, raw: value, others: [] } });
+  }
+
+  function setScanNote(message) {
+    scanDialog.querySelector('#scan-note').textContent = message;
+  }
+
+  function finishScan(result) {
+    const done = scanDone;
+    closeScan();
+    if (done) done(result);
+  }
+
+  /** カメラは必ず止める。止め忘れるとランプが点いたままになる */
+  function closeScan() {
+    if (scanTimer) {
+      clearInterval(scanTimer);
+      scanTimer = null;
+    }
+    Scan.stopStream(scanStream);
+    scanStream = null;
+    const video = scanDialog.querySelector('#scan-video');
+    video.srcObject = null;
+    scanMode = null;
+    scanDone = null;
+    if (scanDialog.open) scanDialog.close();
+  }
+
+  /* --- 読み取った結果の扱い ------------------------------------------------ */
+
+  /**
+   * バーコードから商品名を引く。
+   * 外部の商品データベースは叩かないので、初めての商品は名前が出ない。
+   * そのときは人が入れた名前を覚えて、次からは読ませるだけで済むようにする。
+   */
+  function applyJan(jan) {
+    const known = state.janNames[jan] || null;
+    /* 編集の途中から読んだときは、入力済みの欄を消さずにそのまま埋める */
+    if (!dialog.open) openEditor(null);
+    dialog.querySelector('#f-jan').value = jan;
+
+    if (known) {
+      dialog.querySelector('#f-name').value = known.name;
+      dialog.querySelector('#f-category').value = known.category;
+      setEditorNote(`この商品は覚えています（${jan}）。`);
+      dialog.querySelector('#f-date').focus();
+    } else {
+      setEditorNote(`初めてのバーコードです（${jan}）。商品名を入れると、次からは読ませるだけで入ります。`);
+      dialog.querySelector('#f-name').focus();
+    }
+  }
+
+  function applyExpiry(found) {
+    dialog.querySelector('#f-date').value = found.date;
+    if (found.expiryType) dialog.querySelector('#f-type').value = found.expiryType;
+
+    const others = found.others && found.others.length > 0
+      ? `ほかに ${found.others.map(formatDate).join('、')} も読めました。`
+      : '';
+    setEditorNote(`読み取った期限を入れました：${formatDate(found.date)}。違っていたら直してください。${others}`);
+    updateHint();
+  }
+
+  function setEditorNote(message) {
+    const note = dialog.querySelector('#editor-note');
+    note.textContent = message;
+    note.hidden = !message;
   }
 
   /* --- ユーティリティ --------------------------------------------------- */

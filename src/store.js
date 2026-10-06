@@ -99,6 +99,12 @@ function emptyState() {
     templates: [],
     /* 通知の設定。Web では鳴らせないが、Android へ持っていく値をここで決めておく */
     notify: { enabled: true, time: '08:00', daysBefore: 3 },
+    /**
+     * バーコードから商品名を引く辞書。
+     * 外部の商品データベースは叩かず、一度登録した商品を端末が覚えていく。
+     * 次に同じものを買ったときは、読ませるだけで名前とカテゴリが入る。
+     */
+    janNames: {},
     sampleLoaded: false,
   };
 }
@@ -144,6 +150,7 @@ function normalize(parsed) {
   if (!Array.isArray(state.logs)) state.logs = [];
   if (!Array.isArray(state.shopping)) state.shopping = [];
   if (!Array.isArray(state.templates)) state.templates = [];
+  if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;

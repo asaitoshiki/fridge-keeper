@@ -1756,3 +1756,112 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-family: var(--mono);
   resize: vertical;
 }
+
+/* --- 読み取り（バーコード・賞味期限） ------------------------------------- */
+
+/* クイックバーの読み取りボタン。四隅の枠だけの印で、押す場所だと分かる大きさにする */
+.quick-scan {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  min-height: 46px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.quick-scan:hover { background: var(--surface-2); color: var(--accent); }
+.quick-scan svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+/* 欄のすぐ隣に読み取りを置く。入力の流れを切らずに寄り道できるようにする */
+.field-with-scan { display: flex; gap: 7px; align-items: stretch; }
+.field-with-scan > input { flex: 1; min-width: 0; }
+.btn-scan {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.btn-scan svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+/* 読み取った値を欄に入れたことと、確かめてほしいことを伝える一行 */
+.scan-result {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.scan-stage {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b141a;
+  aspect-ratio: 4 / 3;
+}
+.scan-stage[hidden] { display: none; }
+.scan-stage video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 枠。中に合わせれば読めると伝えるためのもので、切り抜きには使っていない */
+.scan-guide {
+  position: absolute;
+  inset: 16% 8%;
+  border: 2px solid rgba(255, 255, 255, .85);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(8, 16, 20, .32);
+  display: grid;
+  align-content: end;
+  justify-items: center;
+  padding-bottom: 8px;
+  pointer-events: none;
+}
+.scan-guide span {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
+  text-align: center;
+}
+
+.scan-actions { display: flex; gap: 10px; align-items: center; }
+.scan-actions > * { flex: 1; text-align: center; }
+.scan-actions label { cursor: pointer; }
+.scan-actions > [hidden] { display: none; }
+
+.scan-manual-row { display: flex; gap: 7px; }
+.scan-manual-row > input { flex: 1; min-width: 0; }
+.scan-manual-row > button { flex: 0 0 auto; }
+
+.scan-privacy { color: var(--ink-3); }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .scan-result { background: rgba(77, 192, 220, .14); }
+}
+:root[data-theme="dark"] .scan-result { background: rgba(77, 192, 220, .14); }
