@@ -139,9 +139,9 @@
     if (urgent.length === 0) {
       return `
         <section class="summary" data-level="NONE">
-          <div class="summary-eyebrow">今日 ${formatDate(today)}</div>
-          <div class="summary-head">${state.notify.daysBefore}日以内に期限を迎える食材はありません</div>
-          <div class="summary-names">在庫 ${state.items.length} 件を管理中です。</div>
+          <span class="summary-eyebrow">今日 ${formatDate(today)}</span>
+          <span class="summary-head">${state.notify.daysBefore}日以内に期限を迎える食材はありません</span>
+          <span class="summary-names">在庫 ${state.items.length} 件を管理中です。</span>
         </section>`;
     }
 
@@ -150,12 +150,17 @@
     const rest = urgent.length > 3 ? ` 他${urgent.length - 3}件` : '';
     const expired = urgent.filter((x) => x.u.days < 0).length;
 
+    /**
+     * 使い切りたいものがあるときは、押せるようにしてお知らせへ渡す。
+     * ここを読んで「で、どれ」と思った先に、一件ずつ減らせる画面がある。
+     */
     return `
-      <section class="summary" data-level="${worst}">
-        <div class="summary-eyebrow">今日 ${formatDate(today)}</div>
-        <div class="summary-head">使い切りたい食材が <b>${urgent.length}</b> つあります</div>
-        <div class="summary-names">${names}${rest}${expired > 0 ? `／うち期限超過 ${expired}件` : ''}</div>
-      </section>`;
+      <button class="summary summary-link" type="button" data-view="notices" data-level="${worst}">
+        <span class="summary-eyebrow">今日 ${formatDate(today)}</span>
+        <span class="summary-head">使い切りたい食材が <b>${urgent.length}</b> つあります</span>
+        <span class="summary-names">${names}${rest}${expired > 0 ? `／うち期限超過 ${expired}件` : ''}</span>
+        <span class="summary-go">お知らせで見る</span>
+      </button>`;
   }
 
   /**

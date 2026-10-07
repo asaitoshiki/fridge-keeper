@@ -320,6 +320,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .summary[data-level="CAUTION"] .summary-head b { color: var(--caution); }
 .summary-names { font-size: 13px; color: var(--ink-2); }
 
+/* 押せる版。見た目は同じまま、押せることだけを右下の一行と手触りで伝える */
+.summary-link {
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.summary-link:hover { background: var(--surface-2); }
+.summary-link:active { transform: scale(.995); }
+.summary-go {
+  align-self: flex-end;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.summary-go::after { content: " ›"; font-weight: 400; }
+
 /* --- 保管場所フィルタ --------------------------------------------------- */
 
 .filters {

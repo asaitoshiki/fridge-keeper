@@ -3,6 +3,7 @@
 package com.asaitoshiki.fridgekeeper.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -178,7 +179,9 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             ) {
                 when (state.tab) {
                     AppTab.FRIDGE -> {
-                        if (state.totalCount > 0) SummaryCard(state)
+                        if (state.totalCount > 0) {
+                            SummaryCard(state) { viewModel.selectTab(AppTab.NOTICES) }
+                        }
                         StreakLine(state)
                         FridgeModeBar(
                             state = state,
@@ -433,16 +436,19 @@ private fun FridgeModeBar(
  * 通知は不達前提で設計し、アプリを開けば必ず状態が把握できるようにする（仕様書8.3）。
  */
 @Composable
-private fun SummaryCard(state: HomeUiState) {
+private fun SummaryCard(state: HomeUiState, onOpenNotices: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val worst = state.urgent.firstOrNull()?.status?.urgency ?: ExpiryUrgency.NONE
     val bar = urgencyBarColor(worst, dark)
+    /* 使い切りたいものがあるときだけ押せる。何も無い日に押せても行く先が無い */
+    val actionable = state.urgent.isNotEmpty()
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .then(if (actionable) Modifier.clickable(onClick = onOpenNotices) else Modifier),
     ) {
         Box(
             Modifier
@@ -481,6 +487,16 @@ private fun SummaryCard(state: HomeUiState) {
                     text = names + rest + if (expired > 0) "／うち期限超過 ${expired}件" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                /* ここを読んで「で、どれ」と思った先に、一件ずつ減らせる画面がある */
+                Text(
+                    text = "お知らせで見る ›",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(top = 2.dp),
                 )
             }
         }
