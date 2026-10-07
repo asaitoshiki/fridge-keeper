@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-冷蔵庫キーパーの開発方針。詳細な仕様は `docs/fridge-app-spec.md` を参照すること。
+冷蔵庫の地図の開発方針。詳細な仕様は `docs/fridge-app-spec.md` を参照すること。
 
 ## このアプリのアイデンティティ
 

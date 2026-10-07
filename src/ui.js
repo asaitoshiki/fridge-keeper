@@ -78,7 +78,7 @@
   function appBar() {
     return `
       <header class="appbar">
-        <h1 class="wordmark">冷蔵庫<span>キーパー</span></h1>
+        <h1 class="wordmark">冷蔵庫<span>の地図</span></h1>
         <span class="tally">${state.items.length}</span>
       </header>`;
   }
