@@ -1,13 +1,11 @@
 name: Android
 
 # 開発者の手元に Android SDK が無くても APK を受け取れるようにする。
-# main への push のたびにビルドし、成果物として debug APK を残す。
+#
+# 手動で回したときだけ動かす。APK が要るのは実機やエミュレータで触るときだけで、
+# push のたびに回しても誰も受け取らない APK が積まれるだけになる。
+# Actions の画面の「Run workflow」から実行する。
 on:
-  push:
-    branches: [main]
-    paths: ['android/**', '.github/workflows/android.yml']
-  pull_request:
-    paths: ['android/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
 jobs:
