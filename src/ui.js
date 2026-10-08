@@ -955,6 +955,8 @@
       name: '新しい収納',
       type: 'SHELF',
       color: null,
+      handle: 'NONE',
+      handleColor: null,
       compartments: [
         { id: newId('c'), name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', width: 100, height: 68, color: null },
       ],

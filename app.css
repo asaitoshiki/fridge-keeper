@@ -792,9 +792,20 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 .door { border-radius: 8px; padding: 10px 32px 11px 10px; }
 .door-inner { display: flex; flex-direction: column; gap: 8px; }
 
-/* 棚は扉を持たないので、取っ手も余白も出さない */
-.unit[data-type="SHELF"] .door { padding-right: 10px; }
-.unit[data-type="SHELF"] .door-handle { display: none; }
+/**
+ * 取っ手の位置はユーザーが決める。扉の余白も取っ手のある側だけ空ける。
+ * 「なし」のときは余白ごと詰めて、空いた場所が食材に回るようにする。
+ */
+.unit[data-handle="LEFT"] .door { padding: 10px 10px 11px 32px; }
+.unit[data-handle="LEFT"] .door-handle { left: 11px; right: auto; }
+.unit[data-handle="NONE"] .door { padding-right: 10px; }
+.unit[data-handle="NONE"] .door-handle { display: none; }
+.unit[data-handle="NONE"] .drawer-pull { display: none; }
+.unit[data-handle="NONE"] .drawer-box { padding-bottom: 10px; }
+
+/* 引き出しの横棒は、扉の取っ手と同じ側へ寄せる */
+.unit[data-handle="LEFT"] .drawer-pull { left: 14px; transform: none; }
+.unit[data-handle="RIGHT"] .drawer-pull { left: auto; right: 14px; transform: none; }
 
 /* 縦の取っ手。金属の円柱に見えるよう、幅の中でハイライトと陰を回す */
 .door-handle {

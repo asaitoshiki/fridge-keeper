@@ -47,14 +47,25 @@ const FridgeView = (function () {
   }
 
   function unitStyle(unit) {
-    if (!unit.color) return '';
-    return [
-      `--metal-1:${shade(unit.color, 0.34)}`,
-      `--metal-2:${unit.color}`,
-      `--metal-3:${shade(unit.color, -0.22)}`,
-      `--panel-1:${shade(unit.color, 0.4)}`,
-      `--panel-2:${shade(unit.color, 0.12)}`,
-    ].join(';');
+    const parts = [];
+    if (unit.color) {
+      parts.push(
+        `--metal-1:${shade(unit.color, 0.34)}`,
+        `--metal-2:${unit.color}`,
+        `--metal-3:${shade(unit.color, -0.22)}`,
+        `--panel-1:${shade(unit.color, 0.4)}`,
+        `--panel-2:${shade(unit.color, 0.12)}`,
+      );
+    }
+    /* 取っ手は一本の金属に見せたいので、選ばれた色から明暗の三段を作る */
+    if (unit.handleColor) {
+      parts.push(
+        `--chrome-hi:${shade(unit.handleColor, 0.42)}`,
+        `--chrome-mid:${unit.handleColor}`,
+        `--chrome-lo:${shade(unit.handleColor, -0.4)}`,
+      );
+    }
+    return parts.join(';');
   }
 
   /**
@@ -158,7 +169,7 @@ const FridgeView = (function () {
 
     return `
       <section class="unit${selected ? ' is-selected' : ''}${holdsSelection ? ' has-selection' : ''}" data-unit="${unit.id}"
-               data-type="${unit.type}" style="${unitStyle(unit)}">
+               data-type="${unit.type}" data-handle="${unit.handle}" style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
             ? `<button class="unit-pick" type="button" data-select-unit="${unit.id}">
@@ -294,7 +305,19 @@ const FridgeView = (function () {
           </select>
         </label>
 
-        ${colorField(unit.color, `data-unit-color="${unit.id}"`, '本体の色')}
+        <div class="field-row">
+          <span>取っ手</span>
+          <div class="seg">
+            ${Object.entries(HANDLE_LABELS).map(([key, label]) => `
+              <button class="seg-btn" type="button" data-unit-handle="${unit.id}" data-handle-value="${key}"
+                      aria-pressed="${unit.handle === key}">${label}</button>`).join('')}
+          </div>
+        </div>
+
+        ${colorField(unit.color, `data-unit-color="${unit.id}"`, unit.type === 'FRIDGE' ? '冷蔵庫の色' : '棚の色')}
+        ${unit.handle === 'NONE'
+          ? ''
+          : colorField(unit.handleColor, `data-unit-handle-color="${unit.id}"`, '取っ手の色', HANDLE_COLORS)}
       </section>`;
   }
 
@@ -356,8 +379,8 @@ const FridgeView = (function () {
    * 色の選択。期限の警告に使う赤・橙・黄は選択肢に置かない。
    * 庫内をその色にできると、期限切れの食材が背景に紛れてしまうため。
    */
-  function colorField(current, attrs, label) {
-    const swatches = CASE_COLORS.map((option) => {
+  function colorField(current, attrs, label, palette) {
+    const swatches = (palette || CASE_COLORS).map((option) => {
       const on = (option.value || null) === (current || null);
       const style = option.value ? `background:${option.value}` : '';
       return `<button class="swatch${on ? ' is-on' : ''}${option.value ? '' : ' swatch-none'}" type="button"
@@ -421,6 +444,18 @@ const FridgeView = (function () {
         opts.onLayout((layout) => {
           layout.find((u) => u.id === el.dataset.unitColor).color = el.dataset.color || null;
         });
+      });
+    });
+    root.querySelectorAll('[data-unit-handle-color]').forEach((el) => {
+      el.addEventListener('click', () => {
+        opts.onLayout((layout) => {
+          layout.find((u) => u.id === el.dataset.unitHandleColor).handleColor = el.dataset.color || null;
+        });
+      });
+    });
+    on('[data-unit-handle]', 'click', (el) => {
+      opts.onLayout((layout) => {
+        layout.find((u) => u.id === el.dataset.unitHandle).handle = el.dataset.handleValue;
       });
     });
 

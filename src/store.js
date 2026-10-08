@@ -26,6 +26,8 @@ function defaultLayout() {
       name: '冷蔵庫',
       type: 'FRIDGE',
       color: null,
+      handle: 'RIGHT',
+      handleColor: null,
       compartments: [
         comp('c-door', 'ドアポケット', 'FRIDGE', 'POCKET', 100, 52),
         comp('c-upper', '上段', 'FRIDGE', 'SHELF', 100, 68),
@@ -42,6 +44,9 @@ function defaultLayout() {
       name: '常温の棚',
       type: 'SHELF',
       color: null,
+      /* 棚は扉を持たないので、取っ手も既定では出さない */
+      handle: 'NONE',
+      handleColor: null,
       compartments: [
         comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
       ],
@@ -54,6 +59,24 @@ function comp(id, name, kind, form, width, height) {
 }
 
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
+
+/** 取っ手の位置。NONE を選ぶと扉の縦棒も引き出しの横棒も消える */
+const HANDLE_LABELS = { LEFT: '左', RIGHT: '右', NONE: 'なし' };
+
+/**
+ * 取っ手の色。
+ * 本体の色と違って小さく細いので、地と紛れない明暗のはっきりした色だけを置く。
+ */
+const HANDLE_COLORS = [
+  { value: null, label: '既定' },
+  { value: '#adbdc8', label: 'シルバー' },
+  { value: '#e9eef1', label: 'ホワイト' },
+  { value: '#8a949b', label: 'サテン' },
+  { value: '#49535a', label: 'ガンメタル' },
+  { value: '#22272b', label: 'ブラック' },
+  { value: '#b9915f', label: 'ブラス' },
+  { value: '#9a6a4a', label: 'ウッド' },
+];
 
 /* 調整できる範囲。ここを外れると図として破綻するので端で止める */
 const WIDTH_MIN = 20;
@@ -161,6 +184,9 @@ function normalize(parsed) {
   state.layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
     if (unit.color === undefined) unit.color = null;
+    /* 取っ手を持たなかった頃の保存データは、見た目が変わらない側へ寄せる */
+    if (!HANDLE_LABELS[unit.handle]) unit.handle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
+    if (unit.handleColor === undefined) unit.handleColor = null;
     unit.compartments.forEach((c) => {
       if (!c.form) c.form = defaultFormFor(c.kind);
       if (!c.width) c.width = c.span === 1 ? 50 : 100;
