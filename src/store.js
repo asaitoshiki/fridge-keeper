@@ -60,8 +60,8 @@ function comp(id, name, kind, form, width, height) {
 
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
 
-/** 取っ手の位置。NONE を選ぶと扉の縦棒も引き出しの横棒も消える */
-const HANDLE_LABELS = { LEFT: '左', RIGHT: '右', NONE: 'なし' };
+/** 取っ手の位置。NONE を選ぶと扉の棒も引き出しの棒も消える */
+const HANDLE_LABELS = { TOP: '上', RIGHT: '右', BOTTOM: '下', LEFT: '左', NONE: 'なし' };
 
 /**
  * 取っ手の色。

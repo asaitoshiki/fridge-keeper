@@ -177,15 +177,32 @@ const FridgeView = (function () {
                </button>`
             : `<span class="unit-name">${esc(unit.name)}</span>`}
         </header>
-        <div class="case" style="${caseStyle(unit)}">
+        <div class="case" style="${caseStyle(unit)}" data-case="${unit.id}">
           ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
           <div class="unit-body">
             ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts)).join('')}
             ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
           </div>
+          ${selected ? handleZones(unit) : ''}
         </div>
         ${unit.type === 'FRIDGE' ? '<span class="case-feet" aria-hidden="true"><i></i><i></i></span>' : ''}
       </section>`;
+  }
+
+  /**
+   * 取っ手をつまんで動かすときの行き先。
+   * 動かしている間だけ出す。常に出しておくと図が印だらけになって中身が読めない。
+   * 「なし」を真ん中に置くのは、外す操作もつまんで運ぶ同じ動きで終わらせるため。
+   */
+  function handleZones(unit) {
+    const zone = (key) => `<span class="hzone hzone-${key.toLowerCase()}" data-zone="${key}">${HANDLE_LABELS[key]}</span>`;
+    return `
+      <div class="handle-zones" aria-hidden="true">
+        ${['TOP', 'RIGHT', 'BOTTOM', 'LEFT', 'NONE'].map(zone).join('')}
+      </div>
+      ${unit.handle === 'NONE'
+        ? '<span class="handle-ghost" data-handle-grip aria-hidden="true">取っ手</span>'
+        : ''}`;
   }
 
   /** 扉は棚を抱えた一枚板、引き出しは前板と取っ手を持つ箱として描く */
@@ -313,6 +330,8 @@ const FridgeView = (function () {
                       aria-pressed="${unit.handle === key}">${label}</button>`).join('')}
           </div>
         </div>
+        <p class="size-hint">図の<b>取っ手をつまんで</b>、置きたい辺へ運んでも変えられます。
+           真ん中で離すと外れます。</p>
 
         ${colorField(unit.color, `data-unit-color="${unit.id}"`, unit.type === 'FRIDGE' ? '冷蔵庫の色' : '棚の色')}
         ${unit.handle === 'NONE'
@@ -395,6 +414,90 @@ const FridgeView = (function () {
       </div>`;
   }
 
+
+  /* --- 取っ手をつまんで動かす ---------------------------------------------- */
+
+  /** 真ん中のこの割合までは「なし」。端のどれでもない場所で離したときの行き先 */
+  const HANDLE_CENTER = 0.42;
+
+  /** 筐体の中のどこで離したかを、置き場所に読み替える */
+  function zoneAt(rect, x, y) {
+    const dx = (x - (rect.left + rect.width / 2)) / (rect.width / 2);
+    const dy = (y - (rect.top + rect.height / 2)) / (rect.height / 2);
+    if (Math.abs(dx) < HANDLE_CENTER && Math.abs(dy) < HANDLE_CENTER) return 'NONE';
+    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'RIGHT' : 'LEFT';
+    return dy > 0 ? 'BOTTOM' : 'TOP';
+  }
+
+  /**
+   * 選んだ収納の取っ手をつまんで、四辺と「なし」へ運べるようにする。
+   *
+   * 選択肢のボタンは残してあるが、押して確かめるより、運びたい辺へ運ぶほうが早い。
+   * 段の大きさを引いて変えるのと同じ動きに揃えてある。
+   */
+  function bindHandleGrip(root, opts) {
+    const unit = root.querySelector('.unit.is-selected');
+    if (!unit) return;
+
+    const caseEl = unit.querySelector('[data-case]');
+    const zones = unit.querySelector('.handle-zones');
+    if (!caseEl || !zones) return;
+
+    /* 取っ手が無いときは代わりの掴みどころ、あるときは取っ手そのものを握らせる */
+    const grip = unit.querySelector('[data-handle-grip]')
+      || unit.querySelector('.door-handle')
+      || unit.querySelector('.drawer-pull');
+    if (!grip) return;
+
+    grip.classList.add('is-grabbable');
+    grip.style.touchAction = 'none';
+
+    let dragging = false;
+    let picked = null;
+
+    const paint = (zone) => {
+      zones.querySelectorAll('.hzone').forEach((el) => {
+        el.classList.toggle('is-on', el.dataset.zone === zone);
+      });
+    };
+
+    grip.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dragging = true;
+      picked = null;
+      grip.setPointerCapture(event.pointerId);
+      caseEl.classList.add('is-placing-handle');
+      paint(null);
+    });
+
+    grip.addEventListener('pointermove', (event) => {
+      if (!dragging) return;
+      picked = zoneAt(caseEl.getBoundingClientRect(), event.clientX, event.clientY);
+      paint(picked);
+    });
+
+    const finish = () => {
+      if (!dragging) return;
+      dragging = false;
+      caseEl.classList.remove('is-placing-handle');
+      /* 動かさずに離したときは何も変えない。触っただけで消えるのは乱暴 */
+      if (!picked) return;
+      const zone = picked;
+      picked = null;
+      opts.onLayout((layout) => {
+        layout.find((u) => u.id === unit.dataset.unit).handle = zone;
+      });
+    };
+
+    grip.addEventListener('pointerup', finish);
+    grip.addEventListener('pointercancel', () => {
+      dragging = false;
+      picked = null;
+      caseEl.classList.remove('is-placing-handle');
+    });
+  }
+
   /* --- 操作 ------------------------------------------------------------ */
 
   function bind(root, state, opts) {
@@ -458,6 +561,8 @@ const FridgeView = (function () {
         layout.find((u) => u.id === el.dataset.unitHandle).handle = el.dataset.handleValue;
       });
     });
+
+    bindHandleGrip(root, opts);
 
     on('[data-move]', 'click', (el) => {
       const [id, delta] = el.dataset.move.split(':');
