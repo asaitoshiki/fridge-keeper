@@ -3,6 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
+const APP_VERSION = '0.5.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
@@ -105,6 +106,8 @@ function emptyState() {
      * 次に同じものを買ったときは、読ませるだけで名前とカテゴリが入る。
      */
     janNames: {},
+    /* 配色。'auto' は端末の設定に従う。明るい場所で使う人のために選べるようにしてある */
+    theme: 'auto',
     sampleLoaded: false,
   };
 }
@@ -151,6 +154,7 @@ function normalize(parsed) {
   if (!Array.isArray(state.shopping)) state.shopping = [];
   if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
+  if (!['auto', 'light', 'dark'].includes(state.theme)) state.theme = 'auto';
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
@@ -188,6 +192,32 @@ function migrateFromV1(parsed) {
   });
   state.sampleLoaded = Boolean(parsed.sampleLoaded);
   return state;
+}
+
+/**
+ * 保存データをそのまま書き出す。
+ * 端末の中だけに持つ作りなので、機種変更や初期化で消える。
+ * 自分で控えを取れる道がないと、使い続けるほど失うものが大きくなる。
+ */
+function exportState(state) {
+  return JSON.stringify({ app: 'fridge-keeper', version: APP_VERSION, savedAt: todayIso(), state }, null, 2);
+}
+
+/**
+ * 控えから戻す。
+ * 他のアプリの JSON を読まされても壊れないよう、形を確かめてから normalize に通す。
+ * 戻り値が null なら取り込めなかったということ。
+ */
+function importState(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+  const body = parsed && parsed.state ? parsed.state : parsed;
+  if (!body || typeof body !== 'object' || !Array.isArray(body.items)) return null;
+  return normalize(body);
 }
 
 function newId(prefix) {

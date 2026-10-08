@@ -1884,3 +1884,93 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   :root:not([data-theme="light"]) .scan-result { background: rgba(77, 192, 220, .14); }
 }
 :root[data-theme="dark"] .scan-result { background: rgba(77, 192, 220, .14); }
+
+/* --- 設定・検索・期間の切り替え ------------------------------------------- */
+
+/* 択一の切り替え。タブと紛れないよう、角を丸めた一塊にしてある */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+.seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seg-btn[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-actions > * { flex: 1 1 auto; text-align: center; }
+.settings-actions label { cursor: pointer; }
+
+/* 消すものは赤くするが、塗りつぶすと押し間違いを誘うので輪郭だけにする */
+.btn-danger-outline {
+  background: transparent;
+  border: 1.5px solid var(--expired);
+  color: var(--expired);
+  font-weight: 600;
+}
+.btn-danger-outline:hover { background: var(--expired-bg); }
+
+.about {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.about dt { color: var(--ink-3); }
+.about dd { margin: 0; color: var(--ink-2); }
+
+.search { position: relative; display: flex; align-items: center; }
+.search input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 16px;
+  min-height: 42px;
+  font-size: 15px;
+  color: var(--ink);
+}
+.search input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  position: absolute;
+  right: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 6px;
+  line-height: 1;
+}
+
+.report-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.report-head-row .report-head { margin: 0; }
+
+/* 本文中のリンク。既定の青はこの配色から浮くので、アクセント色に寄せる */
+.hint a, .about a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}

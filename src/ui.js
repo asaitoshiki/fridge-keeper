@@ -19,6 +19,10 @@
   /* 編集中に調整している対象。段か収納のどちらか */
   let selection = { type: 'comp', id: null };
   let kindFilter = 'ALL';
+  /* 名前での絞り込み。件数が増えると、図でも一覧でも探すより打つほうが早くなる */
+  let query = '';
+  /* レポートで見る期間（日数） */
+  let reportDays = 30;
   let editingId = null;
   /* 読み取り中のカメラと、読めたときの行き先。閉じるときに必ず止める */
   let scanMode = null;
@@ -48,6 +52,7 @@
   document.body.appendChild(shareDialog);
   document.body.appendChild(scanDialog);
 
+  applyTheme();
   render();
 
   /* --- 描画 ------------------------------------------------------------ */
@@ -202,15 +207,32 @@
   /* --- 期限順リスト ----------------------------------------------------- */
 
   function listPane(today) {
-    const visible = state.items.filter((i) => kindFilter === 'ALL' || kindFor(i) === kindFilter);
+    const needle = query.trim().toLowerCase();
+    const visible = state.items
+      .filter((i) => kindFilter === 'ALL' || kindFor(i) === kindFilter)
+      .filter((i) => needle === '' || i.name.toLowerCase().includes(needle));
     const sorted = sortByExpiry(visible, kindFor, today);
-    return filters() + sheet(sorted, today);
+    return searchBox() + filters() + sheet(sorted, today);
+  }
+
+  function searchBox() {
+    return `
+      <div class="search">
+        <input type="search" id="search-input" placeholder="名前で探す" value="${esc(query)}"
+               autocomplete="off" enterkeyhint="search">
+        ${query.trim() === ''
+          ? ''
+          : '<button class="search-clear" type="button" id="search-clear" aria-label="検索を消す">✕</button>'}
+      </div>`;
   }
 
   function filters() {
-    const counts = { ALL: state.items.length };
+    /* 件数は検索の結果に合わせる。絞り込んだ後に「すべて9」と出ると食い違って見える */
+    const needle = query.trim().toLowerCase();
+    const pool = state.items.filter((i) => needle === '' || i.name.toLowerCase().includes(needle));
+    const counts = { ALL: pool.length };
     Object.keys(STORAGE_LABELS).forEach((key) => {
-      counts[key] = state.items.filter((i) => kindFor(i) === key).length;
+      counts[key] = pool.filter((i) => kindFor(i) === key).length;
     });
 
     const chip = (key, label) => `
@@ -227,11 +249,16 @@
 
   function sheet(items, today) {
     if (items.length === 0) {
-      return `<div class="sheet"><div class="empty">${
-        state.items.length === 0
-          ? '<strong>食材がまだ登録されていません</strong>右下の「食材を追加」から登録してください。'
-          : '<strong>ここには何もありません</strong>ほかのタブを見てください。'
-      }</div></div>`;
+      /* 空の理由ごとに、次にできることを書く。同じ文言だと手詰まりに見える */
+      let message;
+      if (state.items.length === 0) {
+        message = '<strong>食材がまだ登録されていません</strong>下の入力欄から入れてください。';
+      } else if (query.trim() !== '') {
+        message = `<strong>「${esc(query.trim())}」は見つかりません</strong>名前の一部でも探せます。`;
+      } else {
+        message = '<strong>ここには何もありません</strong>ほかの場所を見てください。';
+      }
+      return `<div class="sheet"><div class="empty">${message}</div></div>`;
     }
     return `<div class="sheet">${items.map((item) => row(item, today)).join('')}</div>`;
   }
@@ -323,10 +350,12 @@
 
   /* --- レポート ----------------------------------------------------------- */
 
+  const REPORT_RANGES = [[7, '7日'], [30, '30日'], [90, '90日']];
+
   function reportPane(today) {
     const days = streakDays(state.logs, state.startedAt, today);
     const best = Math.max(state.bestStreak, days);
-    const stats = consumptionStats(state.logs, addDays(today, -29), today);
+    const stats = consumptionStats(state.logs, addDays(today, -(reportDays - 1)), today);
 
     return `
       <div class="report">
@@ -336,7 +365,13 @@
           <span class="hero-sub">最高記録 ${best}日</span>
         </section>
 
-        <h3 class="report-head">直近30日</h3>
+        <div class="report-head-row">
+          <h3 class="report-head">直近${reportDays}日</h3>
+          <div class="seg">
+            ${REPORT_RANGES.map(([value, label]) => `
+              <button class="seg-btn" type="button" data-range="${value}" aria-pressed="${reportDays === value}">${label}</button>`).join('')}
+          </div>
+        </div>
         ${stats.total === 0
           ? '<p class="report-empty">まだ記録がありません。食べた・捨てたを記録すると、ここに出ます。</p>'
           : `
@@ -379,9 +414,24 @@
 
   function settingsPane() {
     const ai = AiAssist.loadSettings();
+    const remembered = Object.keys(state.janNames).length;
+    const themeOption = (value, label) => `
+      <button class="seg-btn" type="button" data-theme="${value}" aria-pressed="${state.theme === value}">${label}</button>`;
 
     return `
       <div class="settings-pane">
+        <section class="settings-block">
+          <h3>表示</h3>
+          <div class="field-row">
+            <span>配色</span>
+            <div class="seg">
+              ${themeOption('auto', '端末に合わせる')}
+              ${themeOption('light', 'ライト')}
+              ${themeOption('dark', 'ダーク')}
+            </div>
+          </div>
+        </section>
+
         <section class="settings-block">
           <h3>お知らせ</h3>
           <label class="check-row">
@@ -442,9 +492,50 @@
           </p>
         </section>
 
-        ${state.sampleLoaded
-          ? '<button class="btn btn-ghost" type="button" id="clear-sample">サンプルデータを削除して空から始める</button>'
-          : ''}
+        <section class="settings-block">
+          <h3>データ</h3>
+          <p class="hint">
+            データはこの端末の中だけに保存されます。機種変更やブラウザのデータ削除で消えるので、
+            控えを取っておくと戻せます。
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-ghost" type="button" id="export-data">控えを書き出す</button>
+            <label class="btn btn-ghost" for="import-data">控えから戻す</label>
+            <input type="file" id="import-data" accept="application/json,.json" hidden>
+          </div>
+          <div class="settings-actions">
+            ${state.sampleLoaded
+              ? '<button class="btn btn-ghost" type="button" id="clear-sample">サンプルデータを消す</button>'
+              : ''}
+            <button class="btn btn-danger-outline" type="button" id="wipe-data">すべてのデータを消す</button>
+          </div>
+        </section>
+
+        <section class="settings-block">
+          <h3>覚えたバーコード</h3>
+          <p class="hint">
+            ${remembered === 0
+              ? 'まだありません。バーコードを読んで商品名を入れると、次から名前が入るようになります。'
+              : `${remembered}件の商品名を覚えています。外部へ問い合わせず、この端末の中だけで引いています。`}
+          </p>
+          ${remembered > 0
+            ? '<div class="settings-actions"><button class="btn btn-ghost" type="button" id="clear-jan">覚えたものを消す</button></div>'
+            : ''}
+        </section>
+
+        <section class="settings-block">
+          <h3>このアプリについて</h3>
+          <dl class="about">
+            <dt>名前</dt><dd>冷蔵庫の地図</dd>
+            <dt>版</dt><dd>${APP_VERSION}</dd>
+            <dt>保存先</dt><dd>この端末の中だけ（外部送信なし）</dd>
+            <dt>在庫</dt><dd>${state.items.length}件／記録 ${state.logs.length}件</dd>
+            <dt>利用開始</dt><dd>${formatDate(state.startedAt)}</dd>
+          </dl>
+          <p class="hint">
+            <a href="https://github.com/asaitoshiki/fridge-keeper" target="_blank" rel="noopener">ソースコード</a>
+          </p>
+        </section>
       </div>`;
   }
 
@@ -473,6 +564,9 @@
           </button>
           <button class="btn btn-ghost" type="button" id="clear-bought" ${state.shopping.some((e) => e.done) ? '' : 'disabled'}>
             買ったものを消す
+          </button>
+          <button class="btn btn-ghost" type="button" id="clear-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
+            全部消す
           </button>
         </div>
 
@@ -641,6 +735,8 @@
       });
     });
 
+    bindSettings();
+
     const saveSettings = root.querySelector('#save-settings');
     if (saveSettings) {
       saveSettings.addEventListener('click', () => {
@@ -731,6 +827,47 @@
     const textFridge = root.querySelector('#text-fridge');
     if (textFridge) {
       textFridge.addEventListener('click', () => showShareText('冷蔵庫の様子の文面', fridgeShareText(today)));
+    }
+
+    /* 打つたびに描き直すと入力が飛ぶので、値を覚えて焦点と位置だけ戻す */
+    const search = root.querySelector('#search-input');
+    if (search) {
+      search.addEventListener('input', () => {
+        query = search.value;
+        const at = search.selectionStart;
+        render();
+        const next = root.querySelector('#search-input');
+        if (next) {
+          next.focus();
+          next.setSelectionRange(at, at);
+        }
+      });
+    }
+
+    const searchClear = root.querySelector('#search-clear');
+    if (searchClear) {
+      searchClear.addEventListener('click', () => {
+        query = '';
+        render();
+      });
+    }
+
+    root.querySelectorAll('[data-range]').forEach((el) => {
+      el.addEventListener('click', () => {
+        reportDays = Number(el.dataset.range);
+        render();
+      });
+    });
+
+    const clearShopping = root.querySelector('#clear-shopping');
+    if (clearShopping) {
+      clearShopping.addEventListener('click', () => {
+        askConfirm('買い物リストを全部消しますか', `${state.shopping.length}件が消えます。`, () => {
+          state.shopping = [];
+          saveState(state);
+          render();
+        });
+      });
     }
 
     const clearBought = root.querySelector('#clear-bought');
@@ -895,7 +1032,8 @@
     return el;
   }
 
-  function askConfirm(title, body, onYes) {
+  /** okLabel を省くと「削除する」。消す以外の確認では何が起きるかを言葉にして渡す */
+  function askConfirm(title, body, onYes, okLabel) {
     confirmDialog.querySelector('#confirm-title').textContent = title;
     const bodyEl = confirmDialog.querySelector('#confirm-body');
     bodyEl.textContent = body;
@@ -904,6 +1042,7 @@
     const ok = confirmDialog.querySelector('#confirm-ok');
     /* 差し替えて前回の確認の宛先が残らないようにする */
     const fresh = ok.cloneNode(true);
+    fresh.textContent = okLabel || '削除する';
     ok.replaceWith(fresh);
     fresh.addEventListener('click', () => {
       confirmDialog.close();
@@ -1416,6 +1555,112 @@
     commit();
   }
 
+
+
+  /* --- 設定の操作 ----------------------------------------------------------- */
+
+  /**
+   * 配色を根の要素に書く。
+   * CSS 側は :root[data-theme] と prefers-color-scheme の両方を見ているので、
+   * 'auto' のときは属性を外して端末の設定に委ねる。
+   */
+  function applyTheme() {
+    if (state.theme === 'auto') {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = state.theme;
+    }
+  }
+
+  function bindSettings() {
+    root.querySelectorAll('[data-theme]').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.theme = el.dataset.theme;
+        saveState(state);
+        applyTheme();
+        render();
+      });
+    });
+
+    const exportButton = root.querySelector('#export-data');
+    if (exportButton) exportButton.addEventListener('click', downloadBackup);
+
+    const importInput = root.querySelector('#import-data');
+    if (importInput) {
+      importInput.addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        event.target.value = '';
+        if (file) restoreBackup(file);
+      });
+    }
+
+    const wipe = root.querySelector('#wipe-data');
+    if (wipe) {
+      wipe.addEventListener('click', () => {
+        askConfirm(
+          'すべてのデータを消しますか',
+          `在庫 ${state.items.length}件、記録 ${state.logs.length}件、収納の配置、買い物リストがすべて消えます。元に戻せません。`,
+          () => {
+            state = emptyState();
+            saveState(state);
+            applyTheme();
+            render();
+            toast('すべて消しました');
+          },
+          'すべて消す',
+        );
+      });
+    }
+
+    const clearJan = root.querySelector('#clear-jan');
+    if (clearJan) {
+      clearJan.addEventListener('click', () => {
+        askConfirm('覚えたバーコードを消しますか', '次からは商品名を手で入れ直すことになります。', () => {
+          state.janNames = {};
+          saveState(state);
+          render();
+          toast('覚えたバーコードを消しました');
+        }, '消す');
+      });
+    }
+  }
+
+  /** 控えをファイルとして渡す。端末の中だけに置く作りなので、持ち出す道を用意しておく */
+  function downloadBackup() {
+    const blob = new Blob([exportState(state)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    /* Chrome は日本語のファイル名を捨てて「download」にしてしまうので ASCII で付ける */
+    link.download = `fridge-map-${todayIso()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    /* 取り消しが早すぎると保存前に失効する端末があるので、少し待ってから */
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('控えを書き出しました');
+  }
+
+  async function restoreBackup(file) {
+    const text = await file.text();
+    const restored = importState(text);
+    if (!restored) {
+      toast('その控えは読めませんでした');
+      return;
+    }
+    askConfirm(
+      '控えから戻しますか',
+      `いまの在庫 ${state.items.length}件は、控えの ${restored.items.length}件で置き換わります。元に戻せません。`,
+      () => {
+        state = restored;
+        saveState(state);
+        applyTheme();
+        render();
+        toast('控えから戻しました');
+      },
+      '戻す',
+    );
+  }
 
   /* --- 読み取り（バーコード・賞味期限） ----------------------------------- */
 
