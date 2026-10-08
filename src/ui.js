@@ -559,9 +559,6 @@
           ? '<p class="buy-empty">買うものを書いておくと、まとめて家族へ送れます。</p>'
           : `<div class="buy-list">${rows}</div>`}
         <div class="buy-actions">
-          <button class="btn btn-primary" type="button" id="share-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
-            買い物リストを送る
-          </button>
           <button class="btn btn-ghost" type="button" id="clear-bought" ${state.shopping.some((e) => e.done) ? '' : 'disabled'}>
             買ったものを消す
           </button>
@@ -575,13 +572,11 @@
           <p>LINE やメールなど、ふだん使っているもので送れます。送り先はこの端末が選ぶので、
              アプリが外部へデータを預けることはありません。</p>
           <div class="buy-actions">
-            <button class="btn btn-ghost" type="button" id="text-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
-              買い物リストを文面にする
+            <button class="btn btn-primary" type="button" id="share-shopping" ${state.shopping.length === 0 ? 'disabled' : ''}>
+              買い物リストを送る
             </button>
-            <button class="btn btn-ghost" type="button" id="share-fridge">冷蔵庫の様子を送る</button>
-            <button class="btn btn-ghost" type="button" id="text-fridge">冷蔵庫の様子を文面にする</button>
+            <button class="btn btn-primary" type="button" id="share-fridge">冷蔵庫の地図を送る</button>
           </div>
-          <p class="hint">共有シートが開けない端末でも、文面にすればコピーして貼り付けられます。</p>
         </div>
       </section>`;
   }
@@ -589,28 +584,44 @@
   /* --- 共有 --------------------------------------------------------------- */
 
   /**
-   * 家族への共有は、自前のサーバーを持たずに OS の共有シートへ投げて済ませる。
-   * LINE でもメールでも、相手がふだん使っているもので届く。
+   * 家族への共有は、自前のサーバーを持たずに済ませる。
    *
-   * 共有シートもクリップボードも、埋め込み先の制約で使えないことがある。
-   * どちらも駄目なときのために、本文をそのまま見せる逃げ道を最後に置いてある。
+   * 共有シートが開けるかは端末と埋め込み先で変わるので、片方だけに賭けない。
+   * 文面をその場に出し、「送る」でも「コピー」でも、最後は選んで手で写してでも
+   * 渡せるようにしてある。
    */
-  async function shareText(title, text) {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text });
-        return;
-      } catch (error) {
-        if (error && error.name === 'AbortError') return;
-      }
-    }
+  function openShare(title, text) {
+    const area = shareDialog.querySelector('#share-text');
+    shareDialog.querySelector('#share-title').textContent = title;
+    /* 共有シートが無い端末で押せない「送る」を見せても仕方がない */
+    shareDialog.querySelector('#share-send').hidden = !navigator.share;
+    /* 「送る」を伏せたときは「コピー」が主役になる。主役のない画面を出さない */
+    const copy = shareDialog.querySelector('#share-copy');
+    copy.classList.toggle('btn-primary', !navigator.share);
+    copy.classList.toggle('btn-ghost', Boolean(navigator.share));
+    setShareLead(navigator.share
+      ? 'そのまま送るか、コピーして貼り付けてください。'
+      : 'この文面をコピーして、LINE やメールに貼り付けてください。');
+    area.value = text;
+    shareDialog.dataset.title = title;
+    shareDialog.showModal();
+    area.select();
+  }
+
+  async function sendShare() {
+    const text = shareDialog.querySelector('#share-text').value;
     try {
-      await navigator.clipboard.writeText(text);
-      toast('コピーしました。貼り付けて送ってください');
-      return;
+      await navigator.share({ title: shareDialog.dataset.title, text });
+      shareDialog.close();
     } catch (error) {
-      showShareFallback(text);
+      /* 送るのをやめただけなら何も言わない。本当に開けなかったときだけ道を示す */
+      if (error && error.name === 'AbortError') return;
+      setShareLead('この端末では共有シートを開けませんでした。コピーして貼り付けてください。');
     }
+  }
+
+  function setShareLead(message) {
+    shareDialog.querySelector('#share-lead').textContent = message;
   }
 
   function fridgeShareText(today) {
@@ -619,7 +630,7 @@
       .filter((x) => x.u.days !== null && x.u.days <= state.notify.daysBefore)
       .sort((a, b) => a.u.days - b.u.days);
 
-    const lines = [`冷蔵庫の様子（${formatDate(today)}）`, ''];
+    const lines = [`冷蔵庫の地図（${formatDate(today)}）`, ''];
     if (urgent.length === 0) {
       lines.push('急いで使い切るものはありません。');
     } else {
@@ -635,12 +646,6 @@
   function shoppingShareText() {
     const pending = state.shopping.filter((entry) => !entry.done);
     return ['買い物リスト', '', ...pending.map((entry) => `・${entry.name}`)].join('\n');
-  }
-
-  function showShareFallback(text) {
-    showShareText('送る文面', text);
-    shareDialog.querySelector('#share-lead').textContent =
-      'この端末では共有シートを開けませんでした。文面をコピーして貼り付けてください。';
   }
 
   function toast(message) {
@@ -816,17 +821,7 @@
 
     const shareShopping = root.querySelector('#share-shopping');
     if (shareShopping) {
-      shareShopping.addEventListener('click', () => shareText('買い物リスト', shoppingShareText()));
-    }
-
-    const textShopping = root.querySelector('#text-shopping');
-    if (textShopping) {
-      textShopping.addEventListener('click', () => showShareText('買い物リストの文面', shoppingShareText()));
-    }
-
-    const textFridge = root.querySelector('#text-fridge');
-    if (textFridge) {
-      textFridge.addEventListener('click', () => showShareText('冷蔵庫の様子の文面', fridgeShareText(today)));
+      shareShopping.addEventListener('click', () => openShare('買い物リスト', shoppingShareText()));
     }
 
     /* 打つたびに描き直すと入力が飛ぶので、値を覚えて焦点と位置だけ戻す */
@@ -881,7 +876,7 @@
 
     const shareFridge = root.querySelector('#share-fridge');
     if (shareFridge) {
-      shareFridge.addEventListener('click', () => shareText('冷蔵庫の様子', fridgeShareText(today)));
+      shareFridge.addEventListener('click', () => openShare('冷蔵庫の地図', fridgeShareText(today)));
     }
 
     const clear = root.querySelector('#clear-sample');
@@ -1329,28 +1324,15 @@
         <p class="hint" id="share-lead"></p>
         <textarea id="share-text" rows="9" readonly></textarea>
         <div class="form-actions">
-          <button class="btn btn-primary" type="button" id="share-copy">コピーする</button>
+          <button class="btn btn-primary" type="button" id="share-send">送る</button>
+          <button class="btn btn-ghost" type="button" id="share-copy">コピー</button>
           <button class="btn btn-ghost" type="button" data-close>閉じる</button>
         </div>
       </div>`;
     el.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', () => el.close()));
+    el.querySelector('#share-send').addEventListener('click', sendShare);
     el.querySelector('#share-copy').addEventListener('click', copyShareText);
     return el;
-  }
-
-  /**
-   * 文面をそのまま見せる。
-   * 共有シートもクリップボードも使えない端末があるので、
-   * 最後は「選んで手で貼り付ける」ところまで必ず辿り着けるようにしておく。
-   */
-  function showShareText(title, text) {
-    const area = shareDialog.querySelector('#share-text');
-    shareDialog.querySelector('#share-title').textContent = title;
-    shareDialog.querySelector('#share-lead').textContent =
-      'この文面をコピーして、LINE やメールに貼り付けてください。';
-    area.value = text;
-    shareDialog.showModal();
-    area.select();
   }
 
   async function copyShareText() {
@@ -1358,12 +1340,10 @@
     area.select();
     try {
       await navigator.clipboard.writeText(area.value);
-      shareDialog.querySelector('#share-lead').textContent = 'コピーしました。貼り付けて送ってください。';
-      return;
+      setShareLead('コピーしました。貼り付けて送ってください。');
     } catch (error) {
       /* クリップボードが使えない端末では、選択済みの文面を手で写してもらう */
-      shareDialog.querySelector('#share-lead').textContent =
-        'コピーできませんでした。文面を選んだ状態にしてあるので、長押しでコピーしてください。';
+      setShareLead('コピーできませんでした。文面を選んだ状態にしてあるので、長押しでコピーしてください。');
     }
   }
 
