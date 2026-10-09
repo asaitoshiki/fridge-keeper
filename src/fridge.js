@@ -258,6 +258,8 @@ const FridgeView = (function () {
   function gripMarkup(compartment) {
     return `
       <span class="size-tag" aria-hidden="true">${compartment.width}% × ${compartment.height}</span>
+      <span class="grip grip-move" data-move-grip="${compartment.id}" role="button"
+            aria-label="${esc(compartment.name)}の位置を動かす"><i></i><i></i><i></i></span>
       <span class="grip grip-w" data-grip="w:${compartment.id}" role="separator"
             aria-label="横幅を変える" aria-orientation="vertical"></span>
       <span class="grip grip-h" data-grip="h:${compartment.id}" role="separator"
@@ -415,6 +417,115 @@ const FridgeView = (function () {
   }
 
 
+
+  /* --- 段をつまんで入れ替える ---------------------------------------------- */
+
+  /** 行の幅のこれを下回る段は、横に並んでいるとみなす */
+  const NARROW_RATIO = 0.75;
+
+  /**
+   * 指の位置が、その段より後ろか。
+   *
+   * 縦に積まれた段は上下の真ん中で、横に二つ並んだ段は左右の真ん中で決める。
+   * 幅いっぱいの段まで左右で決めると、上に重ねたいのか下に重ねたいのかを
+   * 指の高さで言えなくなる。
+   */
+  function isAfter(rect, x, y, rowWidth) {
+    if (y > rect.bottom) return true;
+    if (y < rect.top) return false;
+    if (rect.width < rowWidth * NARROW_RATIO) return x > rect.left + rect.width / 2;
+    return y > rect.top + rect.height / 2;
+  }
+
+  /**
+   * 段をつまんで並べ替える。
+   *
+   * ↑↓ のボタンは一段ずつしか動かせず、離れた場所へ移すのに何度も押すことになる。
+   * 運びたい場所へ運ぶほうが早いので、同じ収納の中で指の位置から行き先を決める。
+   */
+  function bindMoveGrips(root, state, opts) {
+    root.querySelectorAll('[data-move-grip]').forEach((grip) => {
+      const id = grip.dataset.moveGrip;
+      let moving = null;
+      let siblings = [];
+      let target = null;
+      let rowWidth = 1;
+
+      const clearMarks = () => {
+        siblings.forEach(({ el }) => el.classList.remove('is-drop-before', 'is-drop-after'));
+      };
+
+      grip.addEventListener('pointerdown', (event) => {
+        const unit = findUnitOf(state.layout, id);
+        if (!unit || unit.compartments.length < 2) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        moving = unit;
+        /* 掴んだ時点の位置を覚える。動かしている間に図は描き直さない */
+        siblings = unit.compartments.map((c) => {
+          const el = root.querySelector(`.comp[data-select="${c.id}"]`);
+          return el ? { id: c.id, el, rect: el.getBoundingClientRect() } : null;
+        }).filter(Boolean);
+        target = null;
+        /* 横に並んでいるかどうかの基準になる、収納の中身の幅 */
+        const body = root.querySelector(`.unit[data-unit="${unit.id}"] .unit-body`);
+        rowWidth = body ? body.getBoundingClientRect().width : 1;
+        grip.setPointerCapture(event.pointerId);
+        grip.classList.add('is-held');
+        const self = siblings.find((sib) => sib.id === id);
+        if (self) self.el.classList.add('is-moving');
+      });
+
+      grip.addEventListener('pointermove', (event) => {
+        if (!moving) return;
+        event.preventDefault();
+
+        /* 自分より前にある段の数が、そのまま入る位置になる */
+        let index = 0;
+        siblings.forEach((sib) => {
+          if (sib.id === id) return;
+          if (isAfter(sib.rect, event.clientX, event.clientY, rowWidth)) index += 1;
+        });
+        target = index;
+
+        clearMarks();
+        const others = siblings.filter((sib) => sib.id !== id);
+        if (others.length === 0) return;
+        /* 行き先は、そこへ入ることが分かる線で示す。最後尾だけ後ろ側に出す */
+        if (index < others.length) others[index].el.classList.add('is-drop-before');
+        else others[others.length - 1].el.classList.add('is-drop-after');
+      });
+
+      const release = () => {
+        if (!moving) return;
+        const unit = moving;
+        const index = target;
+        moving = null;
+        target = null;
+        grip.classList.remove('is-held');
+        clearMarks();
+        siblings.forEach(({ el }) => el.classList.remove('is-moving'));
+
+        const from = unit.compartments.findIndex((c) => c.id === id);
+        if (index === null || index === from) {
+          /* 動かさずに離したときは並びを触らない。選び直しただけの操作にする */
+          opts.onRedraw();
+          return;
+        }
+        opts.onLayout((layout) => {
+          const target = layout.find((u) => u.id === unit.id);
+          const at = target.compartments.findIndex((c) => c.id === id);
+          const [moved] = target.compartments.splice(at, 1);
+          target.compartments.splice(index, 0, moved);
+        });
+      };
+
+      grip.addEventListener('pointerup', release);
+      grip.addEventListener('pointercancel', release);
+    });
+  }
+
   /* --- 取っ手をつまんで動かす ---------------------------------------------- */
 
   /** 真ん中のこの割合までは「なし」。端のどれでもない場所で離したときの行き先 */
@@ -563,6 +674,7 @@ const FridgeView = (function () {
     });
 
     bindHandleGrip(root, opts);
+    bindMoveGrips(root, state, opts);
 
     on('[data-move]', 'click', (el) => {
       const [id, delta] = el.dataset.move.split(':');

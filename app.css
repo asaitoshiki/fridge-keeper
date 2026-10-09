@@ -846,8 +846,21 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
   cursor: grab;
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  position: absolute;
+  touch-action: none;
 }
 .is-grabbable:active { cursor: grabbing; }
+
+/**
+ * 取っ手は見た目が 8〜9px しかなく、指では掴めない。
+ * 見た目は変えずに、当たり判定だけを指の太さまで広げる。
+ */
+.is-grabbable::before {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  border-radius: 14px;
+}
 
 /* 取っ手が無いときの掴みどころ。運ぶ動きだけで付け直せるようにする */
 .handle-ghost {
@@ -2091,3 +2104,63 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   color: var(--accent);
   text-underline-offset: 2px;
 }
+
+
+/* --- 段をつまんで入れ替える ---------------------------------------------- */
+
+/* 掴むところ。三本線は「動かせる」ことの決まった形なので、説明せずに伝わる */
+.grip-move {
+  position: absolute;
+  /* 大きさの札が左上にいるので、掴むところは右上へ逃がす */
+  right: 6px;
+  top: -11px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 36px;
+  height: 22px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 2px 6px -2px var(--ao);
+  cursor: grab;
+  touch-action: none;
+}
+.grip-move > i {
+  display: block;
+  width: 15px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--on-accent);
+}
+.grip-move:active, .grip-move.is-held { cursor: grabbing; }
+/* 細い摘みなので、ここも指の太さまで当たり判定を広げる */
+.grip-move::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 999px;
+}
+
+/* 運んでいる段は薄く。どれを持っているかが分からないと置き場所を選べない */
+.comp.is-moving { opacity: .35; }
+
+/**
+ * 行き先。段と段のあいだに入ることを一本の線で示す。
+ * ::after は棚とドアポケットの縁板がすでに使っているので ::before だけを使う。
+ */
+.comp.is-drop-before::before,
+.comp.is-drop-after::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  z-index: 8;
+}
+.comp.is-drop-before::before { top: -5px; }
+.comp.is-drop-after::before { top: auto; bottom: -5px; }

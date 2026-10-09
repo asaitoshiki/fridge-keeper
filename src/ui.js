@@ -11,6 +11,8 @@
   /* 冷蔵庫タブの中の見せ方。図と期限順は同じ在庫の別の見え方なので、タブは分けない */
   let fridgeMode = 'figure';
   let editingLayout = false;
+  /* 直前に描いたタブ。タブを変えたときだけ先頭へ戻すための覚え */
+  let renderedView = null;
   /* 帯の状態。初回描画より前に置く。let は宣言行を通るまで触れられない */
   let undoState = null;
   let undoPending = false;
@@ -59,6 +61,14 @@
 
   function render() {
     const today = todayIso();
+    /**
+     * 描き直しでは中身を丸ごと入れ替えるので、何もしないと先頭へ飛ぶ。
+     * 段を選ぶ・大きさを変えるたびに冷蔵庫の上まで戻されては、
+     * 下のほうの段を触っていられない。同じタブの間は見ていた位置を保つ。
+     */
+    const previous = root.querySelector('.screen');
+    const keepTop = previous && renderedView === view ? previous.scrollTop : 0;
+
     root.innerHTML = [
       appBar(),
       '<main class="screen">',
@@ -72,6 +82,12 @@
       bannerMarkup(),
       navBar(),
     ].join('');
+
+    if (keepTop) {
+      const screen = root.querySelector('.screen');
+      if (screen) screen.scrollTop = keepTop;
+    }
+    renderedView = view;
 
     bind(today);
   }
