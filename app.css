@@ -845,21 +845,29 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 .is-grabbable {
   cursor: grab;
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  position: absolute;
+  outline-offset: 3px;
   touch-action: none;
 }
 .is-grabbable:active { cursor: grabbing; }
 
 /**
- * 取っ手は見た目が 8〜9px しかなく、指では掴めない。
- * 見た目は変えずに、当たり判定だけを指の太さまで広げる。
+ * 取っ手は普段の見た目が 5〜8px しかなく、指では狙えない。
+ * 当たり判定を広げるだけでは「触れる場所」が目に見えないので、
+ * 編集中だけは棒そのものを指の幅まで太らせる。
  */
+.stage[data-editing] .door-handle { width: 15px; }
+.stage[data-editing] .unit[data-handle="TOP"] .door-handle,
+.stage[data-editing] .unit[data-handle="BOTTOM"] .door-handle { width: auto; height: 15px; }
+.stage[data-editing] .drawer-pull { height: 13px; }
+.stage[data-editing] .unit[data-handle="LEFT"] .drawer-pull,
+.stage[data-editing] .unit[data-handle="RIGHT"] .drawer-pull { height: 44%; width: 13px; }
+
+/* 太らせてもなお細いので、当たり判定は指の太さまで広げておく */
 .is-grabbable::before {
   content: "";
   position: absolute;
-  inset: -16px;
-  border-radius: 14px;
+  inset: -18px;
+  border-radius: 16px;
 }
 
 /* 取っ手が無いときの掴みどころ。運ぶ動きだけで付け直せるようにする */

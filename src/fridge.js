@@ -154,7 +154,7 @@ const FridgeView = (function () {
     return `
       ${opts.editing ? '<p class="notice">段をタップして選ぶと、下に調整が出ます。動かすと図がその場で変わります。</p>' : ''}
       ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}
-      <div class="stage">
+      <div class="stage"${opts.editing ? ' data-editing="true"' : ''}>
         ${state.layout.map((unit) => unitMarkup(unit, state, opts)).join('')}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
       </div>
@@ -183,7 +183,7 @@ const FridgeView = (function () {
             ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts)).join('')}
             ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
           </div>
-          ${selected ? handleZones(unit) : ''}
+          ${opts.editing ? handleZones(unit) : ''}
         </div>
         ${unit.type === 'FRIDGE' ? '<span class="case-feet" aria-hidden="true"><i></i><i></i></span>' : ''}
       </section>`;
@@ -541,27 +541,32 @@ const FridgeView = (function () {
   }
 
   /**
-   * 選んだ収納の取っ手をつまんで、四辺と「なし」へ運べるようにする。
+   * 取っ手をつまんで、四辺と「なし」へ運べるようにする。
    *
-   * 選択肢のボタンは残してあるが、押して確かめるより、運びたい辺へ運ぶほうが早い。
-   * 段の大きさを引いて変えるのと同じ動きに揃えてある。
+   * 編集中はどの収納の取っ手も掴める。収納を選んでからでないと掴めないと、
+   * 取っ手に触っても何も起きず、動かせること自体に気づけない。
+   * 扉の棒も引き出しの棒も同じように掴めるようにしてある。
    */
-  function bindHandleGrip(root, opts) {
-    const unit = root.querySelector('.unit.is-selected');
-    if (!unit) return;
+  function bindHandleGrips(root, state, opts) {
+    state.layout.forEach((unit) => {
+      const unitEl = root.querySelector(`.unit[data-unit="${unit.id}"]`);
+      if (!unitEl) return;
 
-    const caseEl = unit.querySelector('[data-case]');
-    const zones = unit.querySelector('.handle-zones');
-    if (!caseEl || !zones) return;
+      const caseEl = unitEl.querySelector('[data-case]');
+      const zones = unitEl.querySelector('.handle-zones');
+      if (!caseEl || !zones) return;
 
-    /* 取っ手が無いときは代わりの掴みどころ、あるときは取っ手そのものを握らせる */
-    const grip = unit.querySelector('[data-handle-grip]')
-      || unit.querySelector('.door-handle')
-      || unit.querySelector('.drawer-pull');
-    if (!grip) return;
+      /* 取っ手が無いときは代わりの掴みどころ。あるときは棒そのものを全部握らせる */
+      const grips = unit.handle === 'NONE'
+        ? [...unitEl.querySelectorAll('[data-handle-grip]')]
+        : [...unitEl.querySelectorAll('.door-handle, .drawer-pull')];
 
+      grips.forEach((grip) => attachHandleGrip(grip, unit.id, caseEl, zones, opts));
+    });
+  }
+
+  function attachHandleGrip(grip, unitId, caseEl, zones, opts) {
     grip.classList.add('is-grabbable');
-    grip.style.touchAction = 'none';
 
     let dragging = false;
     let picked = null;
@@ -584,6 +589,7 @@ const FridgeView = (function () {
 
     grip.addEventListener('pointermove', (event) => {
       if (!dragging) return;
+      event.preventDefault();
       picked = zoneAt(caseEl.getBoundingClientRect(), event.clientX, event.clientY);
       paint(picked);
     });
@@ -597,7 +603,7 @@ const FridgeView = (function () {
       const zone = picked;
       picked = null;
       opts.onLayout((layout) => {
-        layout.find((u) => u.id === unit.dataset.unit).handle = zone;
+        layout.find((u) => u.id === unitId).handle = zone;
       });
     };
 
@@ -673,7 +679,7 @@ const FridgeView = (function () {
       });
     });
 
-    bindHandleGrip(root, opts);
+    bindHandleGrips(root, state, opts);
     bindMoveGrips(root, state, opts);
 
     on('[data-move]', 'click', (el) => {
