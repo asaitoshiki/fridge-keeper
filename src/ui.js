@@ -26,6 +26,9 @@
   /* レポートで見る期間（日数） */
   let reportDays = 30;
   let editingId = null;
+  /* 見本帳の絞り込み。開いている間だけ使う */
+  let foodsCategory = 'ALL';
+  let foodsQuery = '';
   /* 読み取り中のカメラと、読めたときの行き先。閉じるときに必ず止める */
   let scanMode = null;
   let scanStream = null;
@@ -40,6 +43,7 @@
   const ICON_GEAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M18 6l-1.4 1.4M7.4 16.6 6 18M18 18l-1.4-1.4M7.4 7.4 6 6"/></svg>';
   const ICON_CART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-1.6 9.2a2 2 0 0 1-2 1.8H7.6a2 2 0 0 1-2-1.8z"/><path d="M9 7V5.5A3 3 0 0 1 15 5.5V7"/></svg>';
 
+  const ICON_BASKET = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5h17l-1.4 8.1a2 2 0 0 1-2 1.7H6.9a2 2 0 0 1-2-1.7z"/><path d="M8.5 9.5 11 4.5"/><path d="M15.5 9.5 13 4.5"/><path d="M9.5 13v3M14.5 13v3"/></svg>';
   const ICON_SCAN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 8.5v7M11 8.5v7M14.5 8.5v7M17.5 8.5v7"/></svg>';
 
   const root = document.getElementById('app');
@@ -48,11 +52,13 @@
   const actionDialog = buildActionDialog();
   const shareDialog = buildShareDialog();
   const scanDialog = buildScanDialog();
+  const foodsDialog = buildFoodsDialog();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
   document.body.appendChild(shareDialog);
   document.body.appendChild(scanDialog);
+  document.body.appendChild(foodsDialog);
 
   applyTheme();
   render();
@@ -154,7 +160,7 @@
 
     const urgent = state.items
       .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
-      .filter((x) => x.u.days !== null && x.u.days <= state.notify.daysBefore)
+      .filter((x) => wantsNotice(x.item, x.u.days))
       .sort((a, b) => a.u.days - b.u.days);
 
     if (urgent.length === 0) {
@@ -294,6 +300,7 @@
         </div>
         <div class="row" data-level="${u.level}" data-estimated="${u.estimated}">
           <span class="row-bar" aria-hidden="true"></span>
+          ${item.icon ? `<span class="row-icon" aria-hidden="true">${item.icon}</span>` : ''}
           <span class="row-main">
             <span class="row-name">${esc(item.name)}${item.quantity > 1 ? `<span class="qty">×${item.quantity}</span>` : ''}</span>
             <span class="row-meta">
@@ -323,7 +330,7 @@
       .sort((a, b) => a.u.days - b.u.days);
 
     const expired = graded.filter((x) => x.u.days < 0);
-    const soon = graded.filter((x) => x.u.days >= 0 && x.u.days <= state.notify.daysBefore);
+    const soon = graded.filter((x) => x.u.days !== null && x.u.days >= 0 && wantsNotice(x.item, x.u.days));
     const unplaced = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
 
     const group = (title, tone, entries, note) => {
@@ -349,7 +356,8 @@
         ${nothing ? '<p class="notices-empty">いま気にすることはありません。</p>' : ''}
         ${group('期限を過ぎています', 'critical', expired,
           '見た目とにおいを確かめてから判断してください。消費期限のものは食べないでください。')}
-        ${group(`${state.notify.daysBefore}日以内に期限を迎えます`, 'warn', soon, '')}
+        ${/* 食材ごとに日数を変えられるので、見出しに全体の設定値は出さない */ ''}
+        ${group('もうすぐ期限を迎えます', 'warn', soon, '')}
         ${unplaced.length > 0 ? `
           <section class="notice-group" data-tone="plain">
             <header><h3>まだ冷蔵庫に入れていません</h3><span>${unplaced.length}件</span></header>
@@ -643,7 +651,7 @@
   function fridgeShareText(today) {
     const urgent = state.items
       .map((item) => ({ item, u: urgencyOf(item, kindFor(item), today) }))
-      .filter((x) => x.u.days !== null && x.u.days <= state.notify.daysBefore)
+      .filter((x) => wantsNotice(x.item, x.u.days))
       .sort((a, b) => a.u.days - b.u.days);
 
     const lines = [`冷蔵庫の地図（${formatDate(today)}）`, ''];
@@ -699,6 +707,7 @@
         ${names.length > 0 ? `<div class="quick-templates">${chips}</div>` : ''}
         <form class="quick-add" id="quick-form">
           <input type="text" id="quick-input" placeholder="買ってきたものを入れる" autocomplete="off">
+          <button class="quick-scan" type="button" id="quick-foods" aria-label="よく使う食品から選ぶ">${ICON_BASKET}</button>
           <button class="quick-scan" type="button" id="quick-barcode" aria-label="バーコードを読む">${ICON_SCAN}</button>
           <button class="quick-go" type="submit" aria-label="入れる">入れる</button>
           <button class="quick-more" type="button" id="open-full" aria-label="詳しく入力">詳しく</button>
@@ -796,6 +805,9 @@
 
     const openFull = root.querySelector('#open-full');
     if (openFull) openFull.addEventListener('click', () => openEditor(null));
+
+    const quickFoods = root.querySelector('#quick-foods');
+    if (quickFoods) quickFoods.addEventListener('click', openFoods);
 
     const quickBarcode = root.querySelector('#quick-barcode');
     if (quickBarcode) {
@@ -1071,11 +1083,18 @@
    * 期限も置き場所も後から決められるようにして、レジ袋を空けながらでも
    * 入力が止まらないようにする。カテゴリは名前から推すので指定もいらない。
    */
-  function quickAdd(name) {
+  /**
+   * 名前だけで足す。
+   * 見本帳にある名前なら、カテゴリも絵文字もそこから引く。
+   * silent は見本帳から続けて選んでいるとき。一件ごとに帯を出すと読む間がない。
+   */
+  function quickAdd(name, opts) {
+    const preset = FOOD_BY_NAME[name] || null;
     state.items.push({
       id: newId('item'),
       name,
-      category: guessCategoryByName(name),
+      category: preset ? preset.category : guessCategoryByName(name),
+      icon: preset ? preset.icon : iconForName(name),
       compartmentId: null,
       expiryType: 'BEST_BEFORE',
       expiryDate: null,
@@ -1083,11 +1102,13 @@
       registeredAt: todayIso(),
       janCode: null,
       memo: null,
+      notifyDaysBefore: null,
+      notifyTime: null,
     });
     rememberTemplate(name);
     saveState(state);
     render();
-    toast(`${name} を「買ってきたもの」に入れました`);
+    if (!(opts && opts.silent)) toast(`${name} を「買ってきたもの」に入れました`);
   }
 
   function rememberTemplate(name) {
@@ -1393,7 +1414,11 @@
           </div>
           <div class="field">
             <label for="f-quantity">個数</label>
-            <input id="f-quantity" name="quantity" type="number" min="1" step="1" value="1" inputmode="numeric">
+            <div class="stepper">
+              <button class="step-btn" type="button" id="qty-minus" aria-label="1つ減らす">−</button>
+              <input id="f-quantity" name="quantity" type="number" min="1" step="1" value="1" inputmode="numeric">
+              <button class="step-btn" type="button" id="qty-plus" aria-label="1つ増やす">＋</button>
+            </div>
           </div>
         </div>
 
@@ -1423,6 +1448,26 @@
         <p class="scan-result" id="editor-note" hidden></p>
         <div class="hint" id="f-hint"></div>
 
+        <div class="field-pair">
+          <div class="field">
+            <label for="f-notify-days">知らせる <span class="optional">この食材だけ</span></label>
+            <select id="f-notify-days" name="notifyDaysBefore">
+              <option value="">設定どおり</option>
+              <option value="0">当日</option>
+              <option value="1">1日前</option>
+              <option value="2">2日前</option>
+              <option value="3">3日前</option>
+              <option value="5">5日前</option>
+              <option value="7">7日前</option>
+              <option value="off">知らせない</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-notify-time">時刻</label>
+            <input id="f-notify-time" name="notifyTime" type="time">
+          </div>
+        </div>
+
         <div class="field">
           <label for="f-memo">メモ <span class="optional">— 任意</span></label>
           <textarea id="f-memo" name="memo" rows="2" placeholder="半額だったもの／半玉だけ残り など"></textarea>
@@ -1438,6 +1483,13 @@
     el.querySelector('#editor-form').addEventListener('submit', onSubmit);
     el.querySelector('#editor-delete').addEventListener('click', onDelete);
     /* 入力の途中から読み取りへ寄り道して、戻ってきた値を欄に入れる */
+    const qty = el.querySelector('#f-quantity');
+    const bump = (delta) => {
+      qty.value = Math.max(1, (Number(qty.value) || 1) + delta);
+    };
+    el.querySelector('#qty-minus').addEventListener('click', () => bump(-1));
+    el.querySelector('#qty-plus').addEventListener('click', () => bump(1));
+
     el.querySelector('#scan-barcode').addEventListener('click', () => {
       openScan('barcode', (result) => applyJan(result.jan));
     });
@@ -1475,6 +1527,9 @@
     dialog.querySelector('#f-date').value = item && item.expiryDate ? item.expiryDate : '';
     dialog.querySelector('#f-memo').value = item && item.memo ? item.memo : '';
     dialog.querySelector('#f-jan').value = item && item.janCode ? item.janCode : '';
+    /* 既定と同じなら空にしておく。わざわざこの食材だけ変えた、が見て分かるようにする */
+    dialog.querySelector('#f-notify-days').value = notifyDaysValue(item);
+    dialog.querySelector('#f-notify-time').value = item && item.notifyTime ? item.notifyTime : '';
     setEditorNote('');
 
     updateHint();
@@ -1528,7 +1583,10 @@
       quantity: Math.max(1, Number(f.quantity.value) || 1),
       memo: f.memo.value.trim() || null,
       janCode: f.janCode.value || null,
+      notifyDaysBefore: parseNotifyDays(f.notifyDaysBefore.value),
+      notifyTime: f.notifyTime.value || null,
     };
+    if (!existingItem(editingId)) values.icon = iconForName(name);
 
     /* 読ませたバーコードと名前の組を覚える。次に同じ商品を買ったとき手で打たずに済む */
     if (values.janCode) {
@@ -1658,6 +1716,104 @@
       },
       '戻す',
     );
+  }
+
+
+  /* --- よく使う食品から選ぶ ------------------------------------------------ */
+
+  /**
+   * 名前を打たずに選ぶだけで登録できるようにする。
+   * 買ってきたものをまとめて入れるときは、一件ずつ打つのが一番の重荷になる。
+   * 選んでも閉じないので、続けて何件でも入れられる。
+   */
+  function buildFoodsDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'foods';
+    el.innerHTML = `
+      <div class="sheet-form foods">
+        <div class="form-head">
+          <h2>よく使う食品</h2>
+          <button class="icon-btn" type="button" id="foods-close" aria-label="閉じる">×</button>
+        </div>
+        <div class="search">
+          <input type="search" id="foods-search" placeholder="名前で探す" autocomplete="off">
+        </div>
+        <div class="foods-cats" id="foods-cats"></div>
+        <div class="foods-grid" id="foods-grid"></div>
+        <p class="hint" id="foods-note">選ぶと「買ってきたもの」に入ります。続けて選べます。</p>
+      </div>`;
+    el.querySelector('#foods-close').addEventListener('click', () => el.close());
+    el.querySelector('#foods-search').addEventListener('input', (event) => {
+      foodsQuery = event.target.value;
+      paintFoods(true);
+    });
+    return el;
+  }
+
+  function openFoods() {
+    foodsCategory = 'ALL';
+    foodsQuery = '';
+    foodsDialog.querySelector('#foods-search').value = '';
+    setFoodsNote('選ぶと「買ってきたもの」に入ります。続けて選べます。');
+    paintFoods();
+    foodsDialog.showModal();
+  }
+
+  function visibleFoods() {
+    const needle = foodsQuery.trim().toLowerCase();
+    return FOOD_PRESETS.filter((food) => {
+      if (foodsCategory !== 'ALL' && food.category !== foodsCategory) return false;
+      if (needle === '') return true;
+      /* 漢字の食品は読みでも引く。「とうふ」と打つ人のほうが多い */
+      return food.name.toLowerCase().includes(needle)
+        || (food.kana && food.kana.includes(needle));
+    });
+  }
+
+  /** keepSearch のときは検索欄を描き直さない。打っている最中に焦点を失わせないため */
+  function paintFoods(keepSearch) {
+    const list = visibleFoods();
+
+    if (!keepSearch) {
+      const counts = { ALL: FOOD_PRESETS.length };
+      Object.keys(CATEGORY_LABELS).forEach((key) => {
+        counts[key] = FOOD_PRESETS.filter((f) => f.category === key).length;
+      });
+      const chip = (key, label) => `
+        <button class="chip-filter" type="button" data-food-cat="${key}" aria-pressed="${foodsCategory === key}">
+          ${label}<em>${counts[key]}</em>
+        </button>`;
+      foodsDialog.querySelector('#foods-cats').innerHTML = [
+        chip('ALL', 'すべて'),
+        ...Object.entries(CATEGORY_LABELS).map(([k, v]) => chip(k, v)),
+      ].join('');
+      foodsDialog.querySelectorAll('[data-food-cat]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          foodsCategory = btn.dataset.foodCat;
+          paintFoods();
+        });
+      });
+    }
+
+    foodsDialog.querySelector('#foods-grid').innerHTML = list.length === 0
+      ? '<p class="foods-empty">見つかりません。閉じて名前を打つと、そのまま入れられます。</p>'
+      : list.map((food) => `
+          <button class="food-btn" type="button" data-food="${esc(food.name)}">
+            <span class="food-icon">${food.icon}</span>
+            <span class="food-name">${esc(food.name)}</span>
+          </button>`).join('');
+
+    foodsDialog.querySelectorAll('[data-food]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        quickAdd(btn.dataset.food, { silent: true });
+        btn.classList.add('is-added');
+        setFoodsNote(`「${btn.dataset.food}」を入れました。続けて選べます。`);
+      });
+    });
+  }
+
+  function setFoodsNote(message) {
+    foodsDialog.querySelector('#foods-note').textContent = message;
   }
 
   /* --- 読み取り（バーコード・賞味期限） ----------------------------------- */
@@ -1946,6 +2102,44 @@
   }
 
   /* --- ユーティリティ --------------------------------------------------- */
+
+
+  function existingItem(id) {
+    return id ? state.items.find((i) => i.id === id) || null : null;
+  }
+
+  /** 選択欄の値。null は「設定どおり」、-1 は「知らせない」 */
+  function notifyDaysValue(item) {
+    if (!item || item.notifyDaysBefore === null || item.notifyDaysBefore === undefined) return '';
+    return item.notifyDaysBefore < 0 ? 'off' : String(item.notifyDaysBefore);
+  }
+
+  function parseNotifyDays(raw) {
+    if (raw === '') return null;
+    if (raw === 'off') return -1;
+    return Number(raw);
+  }
+
+  /**
+   * この食材を何日前に知らせるか。
+   * 食材ごとの設定があればそれを、なければアプリ全体の設定を使う。
+   * -1 はこの食材だけ知らせない指定。
+   */
+  /**
+   * この食材を、残り days 日の時点で知らせるか。
+   * 食材ごとに「知らせない」を選べるので、全体の設定だけでは決められない。
+   */
+  function wantsNotice(item, days) {
+    if (days === null) return false;
+    const threshold = notifyDaysFor(item);
+    if (threshold < 0) return false;
+    return days <= threshold;
+  }
+
+  function notifyDaysFor(item) {
+    if (item.notifyDaysBefore === null || item.notifyDaysBefore === undefined) return state.notify.daysBefore;
+    return item.notifyDaysBefore;
+  }
 
   function esc(text) {
     return String(text).replace(/[&<>"']/g, (c) => ({

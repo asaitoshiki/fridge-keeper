@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="冷蔵庫の地図">
+  <!--
+    冷蔵庫の地図 — アプリのアイコン。
+
+    庫内を地図のように区切り、いま気にかけるべき一段だけに印を立てる。
+    「どこに何があるか」と「次に使うのはこれ」が、名前を読まなくても伝わる形。
+    警告に使う赤は印の一点だけに絞り、庫内には置かない（仕様書8.2）。
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15808f"/>
+      <stop offset="1" stop-color="#0a5468"/>
+    </linearGradient>
+    <linearGradient id="case" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d7e5ec"/>
+    </linearGradient>
+    <linearGradient id="cavity" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9cdd9"/>
+      <stop offset="1" stop-color="#d3e1e9"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+
+  <!-- 筐体 -->
+  <rect x="116" y="84" width="280" height="344" rx="34" fill="url(#case)"/>
+
+  <!-- 庫内の区切り。上は棚、下は引き出し -->
+  <rect x="152" y="124" width="178" height="56" rx="12" fill="url(#cavity)"/>
+  <rect x="152" y="196" width="178" height="56" rx="12" fill="url(#cavity)"/>
+  <rect x="152" y="284" width="178" height="48" rx="12" fill="url(#cavity)"/>
+  <rect x="152" y="348" width="178" height="48" rx="12" fill="url(#cavity)"/>
+
+  <!-- 扉の境目。上の扉と下の引き出しを分ける -->
+  <rect x="140" y="266" width="202" height="4" rx="2" fill="#9fb4c1"/>
+
+  <!-- 縦の取っ手 -->
+  <rect x="352" y="128" width="18" height="124" rx="9" fill="#89a2b1"/>
+  <rect x="352" y="292" width="18" height="100" rx="9" fill="#89a2b1"/>
+
+  <!-- 地図の印。いま使い切りたい一段を指す -->
+  <path d="M241 158c-37 0-67 29-67 65 0 48 60 97 64 100a5 5 0 0 0 6 0c4-3 64-52 64-100 0-36-30-65-67-65z"
+        fill="#ffffff"/>
+  <path d="M241 170c-30 0-55 24-55 53 0 39 49 80 53 83a3 3 0 0 0 4 0c4-3 53-44 53-83 0-29-25-53-55-53z"
+        fill="#e0483a"/>
+  <circle cx="241" cy="222" r="20" fill="#ffffff"/>
+</svg>

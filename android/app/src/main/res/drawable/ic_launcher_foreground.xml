@@ -1,20 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 冷蔵庫を模した単純な図形。アダプティブアイコンのセーフゾーン内に収めている -->
+<!--
+  冷蔵庫の地図 — ランチャーアイコンの前景。
+
+  庫内を地図のように区切り、いま気にかけるべき一段に印を立てる。
+  アダプティブアイコンのセーフゾーン（108 のうち中央 72）に収めてある。
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- 筐体 -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M38,28h32a4,4 0,0 1,4 4v44a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-44a4,4 0,0 1,4 -4z" />
+        android:fillColor="#F4F8FA"
+        android:pathData="M34.4,22.2h43.1a6.3,6.3 0 0 1 6.3,6.3v51a6.3,6.3 0 0 1 -6.3,6.3h-43.1a6.3,6.3 0 0 1 -6.3,-6.3v-51a6.3,6.3 0 0 1 6.3,-6.3z" />
+
+    <!-- 庫内。上は棚、下は引き出し -->
+    <path android:fillColor="#C6D7E1" android:pathData="M37,29.6h32.9a2.2,2.2 0 0 1 2.2,2.2v6a2.2,2.2 0 0 1 -2.2,2.2h-32.9a2.2,2.2 0 0 1 -2.2,-2.2v-6a2.2,2.2 0 0 1 2.2,-2.2z" />
+    <path android:fillColor="#C6D7E1" android:pathData="M37,42.9h32.9a2.2,2.2 0 0 1 2.2,2.2v6a2.2,2.2 0 0 1 -2.2,2.2h-32.9a2.2,2.2 0 0 1 -2.2,-2.2v-6a2.2,2.2 0 0 1 2.2,-2.2z" />
+    <path android:fillColor="#C6D7E1" android:pathData="M37,59.2h32.9a2.2,2.2 0 0 1 2.2,2.2v4.5a2.2,2.2 0 0 1 -2.2,2.2h-32.9a2.2,2.2 0 0 1 -2.2,-2.2v-4.5a2.2,2.2 0 0 1 2.2,-2.2z" />
+    <path android:fillColor="#C6D7E1" android:pathData="M37,71h32.9a2.2,2.2 0 0 1 2.2,2.2v4.5a2.2,2.2 0 0 1 -2.2,2.2h-32.9a2.2,2.2 0 0 1 -2.2,-2.2v-4.5a2.2,2.2 0 0 1 2.2,-2.2z" />
+
+    <!-- 扉と引き出しの境目 -->
+    <path android:fillColor="#9FB4C1" android:pathData="M32.5,55.6h37.4v0.9h-37.4z" />
+
+    <!-- 縦の取っ手 -->
+    <path android:fillColor="#89A2B1" android:pathData="M73.8,30.3h1.9a1.7,1.7 0 0 1 1.7,1.7v19.5a1.7,1.7 0 0 1 -1.7,1.7h-1.9a1.7,1.7 0 0 1 -1.7,-1.7v-19.5a1.7,1.7 0 0 1 1.7,-1.7z" />
+    <path android:fillColor="#89A2B1" android:pathData="M73.8,60.7h1.9a1.7,1.7 0 0 1 1.7,1.7v15.1a1.7,1.7 0 0 1 -1.7,1.7h-1.9a1.7,1.7 0 0 1 -1.7,-1.7v-15.1a1.7,1.7 0 0 1 1.7,-1.7z" />
+
+    <!-- 地図の印。いま使い切りたい一段を指す -->
     <path
-        android:fillColor="#2E7D32"
-        android:pathData="M38,50h32v3h-32z" />
-    <path
-        android:fillColor="#2E7D32"
-        android:pathData="M42,38h3v8h-3z" />
-    <path
-        android:fillColor="#2E7D32"
-        android:pathData="M42,58h3v8h-3z" />
+        android:fillColor="#E0483A"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.6"
+        android:pathData="M51.2,35.6c-5.9,0 -10.6,4.7 -10.6,10.6c0,8 10.6,20.2 10.6,20.2s10.6,-12.2 10.6,-20.2c0,-5.9 -4.7,-10.6 -10.6,-10.6z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M51.2,42.2m-4.2,0a4.2,4.2 0 1,0 8.4,0a4.2,4.2 0 1,0 -8.4,0" />
 </vector>

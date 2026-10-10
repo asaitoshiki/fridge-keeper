@@ -2172,3 +2172,83 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 }
 .comp.is-drop-before::before { top: -5px; }
 .comp.is-drop-after::before { top: auto; bottom: -5px; }
+
+/* --- よく使う食品から選ぶ ------------------------------------------------- */
+
+.foods { max-height: 82vh; }
+.foods-cats {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.foods-cats::-webkit-scrollbar { display: none; }
+
+/* 一覧はここだけが伸び縮みする。見出しと検索は常に見えていてほしい */
+.foods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 7px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 2px;
+}
+.food-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 5px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11.5px;
+  line-height: 1.3;
+  text-align: center;
+}
+.food-btn:hover { background: var(--surface-2); }
+/* 入れたものに印を残す。続けて選ぶときに同じものを二度押さずに済む */
+.food-btn.is-added { border-color: var(--accent); background: var(--accent-soft); }
+.food-btn.is-added::after { content: "入れた"; font-size: 9.5px; font-weight: 700; color: var(--accent); }
+.food-icon { font-size: 21px; line-height: 1.1; }
+.food-name { word-break: break-word; }
+.foods-empty { grid-column: 1 / -1; color: var(--ink-3); font-size: 13px; padding: 18px 4px; }
+
+/* --- 食材の絵文字 --------------------------------------------------------- */
+
+.chip-icon { font-size: 13px; line-height: 1; padding-left: 2px; }
+.row-icon {
+  font-size: 19px;
+  line-height: 1;
+  padding: 0 2px 0 10px;
+  align-self: center;
+}
+
+/* --- 個数の増減 ----------------------------------------------------------- */
+
+/* 打ち直すより一回押すほうが速いので、数字の両脇に置く */
+.stepper { display: flex; align-items: stretch; gap: 6px; }
+.stepper input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.step-btn {
+  flex: 0 0 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.step-btn:hover { background: var(--surface-2); }

@@ -3,7 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.6.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
@@ -178,6 +178,12 @@ function normalize(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
   if (!['auto', 'light', 'dark'].includes(state.theme)) state.theme = 'auto';
+  /* 絵文字と食材ごとの通知を持たなかった頃の保存データを補う */
+  state.items.forEach((item) => {
+    if (item.icon === undefined) item.icon = iconForName(item.name);
+    if (item.notifyDaysBefore === undefined) item.notifyDaysBefore = null;
+    if (item.notifyTime === undefined) item.notifyTime = null;
+  });
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
@@ -303,6 +309,9 @@ function withSample(state) {
   state.items = sample.map((s) => ({
     id: newId('item'),
     name: s.name,
+    icon: iconForName(s.name),
+    notifyDaysBefore: null,
+    notifyTime: null,
     category: s.category,
     compartmentId: s.at,
     expiryType: s.expiryType,

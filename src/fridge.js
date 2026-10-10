@@ -284,6 +284,7 @@ const FridgeView = (function () {
       <button class="chip" type="button" data-item="${item.id}" data-level="${u.level}"
               data-estimated="${u.estimated}" ${useBy ? 'data-useby="true"' : ''}
               aria-label="${esc(item.name)} ${remainingLabel(u.days)}${u.estimated ? '（目安）' : ''}">
+        ${item.icon ? `<span class="chip-icon" aria-hidden="true">${item.icon}</span>` : ''}
         <span class="chip-name">${esc(item.name)}${item.quantity > 1 ? `<i>×${item.quantity}</i>` : ''}</span>
         ${u.estimated && u.date ? '<span class="chip-est">目安</span>' : ''}
         <span class="chip-days">${shortRemainingLabel(u.days)}</span>
