@@ -566,11 +566,24 @@ const FridgeView = (function () {
     });
   }
 
+  /** 運び終えた直後の一回だけ、クリックを捨てる */
+  function swallowNextClick() {
+    const swallow = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener('click', swallow, { capture: true, once: true });
+    /* クリックが来ないまま終わることもあるので、短い時間で必ず外す */
+    setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 350);
+  }
+
   function attachHandleGrip(grip, unitId, caseEl, zones, opts) {
     grip.classList.add('is-grabbable');
 
     let dragging = false;
     let picked = null;
+    let moved = false;
+    let from = null;
 
     const paint = (zone) => {
       zones.querySelectorAll('.hzone').forEach((el) => {
@@ -578,18 +591,32 @@ const FridgeView = (function () {
       });
     };
 
+    /**
+     * ここで preventDefault はしない。
+     * 取っ手の当たり判定は見た目より広げてあるので、止めてしまうと
+     * 取っ手の脇をタップしたときに下の段が選べなくなる。
+     * 動かさずに離せば、そのままクリックが下へ通って段が選ばれる。
+     */
     grip.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
       dragging = true;
       picked = null;
+      moved = false;
+      from = { x: event.clientX, y: event.clientY };
       grip.setPointerCapture(event.pointerId);
-      caseEl.classList.add('is-placing-handle');
       paint(null);
     });
 
     grip.addEventListener('pointermove', (event) => {
       if (!dragging) return;
+      /* 指のぶれで動かさない。はっきり運び始めてから行き先を決める */
+      if (!moved) {
+        const dx = event.clientX - from.x;
+        const dy = event.clientY - from.y;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        moved = true;
+        caseEl.classList.add('is-placing-handle');
+      }
+      /* 運び始めてからは画面を動かさない */
       event.preventDefault();
       picked = zoneAt(caseEl.getBoundingClientRect(), event.clientX, event.clientY);
       paint(picked);
@@ -599,6 +626,8 @@ const FridgeView = (function () {
       if (!dragging) return;
       dragging = false;
       caseEl.classList.remove('is-placing-handle');
+      /* 運んだあとのクリックは捨てる。置いたついでに下の段まで選ばれては困る */
+      if (moved) swallowNextClick();
       /* 動かさずに離したときは何も変えない。触っただけで消えるのは乱暴 */
       if (!picked) return;
       const zone = picked;

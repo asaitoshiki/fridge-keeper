@@ -862,13 +862,19 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 .stage[data-editing] .unit[data-handle="LEFT"] .drawer-pull,
 .stage[data-editing] .unit[data-handle="RIGHT"] .drawer-pull { height: 44%; width: 13px; }
 
-/* 太らせてもなお細いので、当たり判定は指の太さまで広げておく */
+/**
+ * 太らせてもなお細いので、当たり判定は少し広げておく。
+ * ただし広げすぎると、取っ手の脇をタップしたときに下の段が選べなくなる。
+ * 棒に沿う向きは広く、またぐ向きは狭く取る。
+ */
 .is-grabbable::before {
   content: "";
   position: absolute;
-  inset: -18px;
-  border-radius: 16px;
+  inset: -12px -9px;
+  border-radius: 14px;
 }
+.unit[data-handle="TOP"] .is-grabbable::before,
+.unit[data-handle="BOTTOM"] .is-grabbable::before { inset: -9px -12px; }
 
 /* 取っ手が無いときの掴みどころ。運ぶ動きだけで付け直せるようにする */
 .handle-ghost {
