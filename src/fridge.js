@@ -129,6 +129,8 @@ const FridgeView = (function () {
 
     compartments.forEach((compartment) => {
       if (compartment.form !== 'DRAWER') {
+        /* 「ここから新しい扉」の段で区切る。2ドア・3ドアはここで分かれる */
+        if (compartment.newDoor) door = null;
         if (!door) {
           door = { type: 'door', pockets: [], shelves: [] };
           out.push(door);
@@ -200,7 +202,8 @@ const FridgeView = (function () {
 
     return `
       <section class="unit${selected ? ' is-selected' : ''}${holdsSelection ? ' has-selection' : ''}" data-unit="${unit.id}"
-               data-type="${unit.type}" data-handle="${unit.handle}" style="${unitStyle(unit)}">
+               data-type="${unit.type}" data-handle="${unit.handle}" data-door="${unit.doorStyle}"
+               ${unit.doorStyle === 'FRENCH' ? 'data-wide="true"' : ''} style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
             ? `<button class="unit-pick" type="button" data-select-unit="${unit.id}">
@@ -247,30 +250,53 @@ const FridgeView = (function () {
    * ドアポケットを持たない冷蔵庫もあるので、無ければ扉の板ごと出さない。
    */
   function doorMarkup(section, state, opts, zonesFor, unit) {
+    const french = unit.doorStyle === 'FRENCH';
+    /**
+     * 観音開きでは取っ手は扉の板に付く。庫内に描くと棚を横切ってしまう。
+     * 位置は向かい合う内側で決まっているので、つまんで動かす対象にもしない。
+     */
     const body = `
-      <div class="door">
+      <div class="door"${french ? ' data-french="true"' : ''}>
         <div class="door-inner">
           ${packRows(section.shelves).map((row) => rowMarkup(row, state, opts, false, zonesFor)).join('')}
         </div>
-        <span class="door-handle" aria-hidden="true"></span>
-        ${zonesFor()}
+        ${french ? '' : '<span class="door-handle" aria-hidden="true"></span>'}
+        ${french ? '' : zonesFor()}
       </div>`;
 
     if (section.pockets.length === 0) return body;
 
-    const leaf = `
-      <div class="door-leaf">
+    const leaf = (pockets, side) => `
+      <div class="door-leaf" data-side="${side}">
         <span class="leaf-tag" aria-hidden="true">ドア</span>
         <div class="leaf-inner">
-          ${section.pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
+          ${pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
         </div>
         <span class="hinge" aria-hidden="true"></span>
+        ${french ? '<span class="door-handle leaf-handle" aria-hidden="true"></span>' : ''}
       </div>`;
 
     /* 棚が一つも無ければ、扉の板だけで横幅いっぱいを使う */
-    if (section.shelves.length === 0) return `<div class="door-split" data-only-leaf="true">${leaf}</div>`;
+    if (section.shelves.length === 0) {
+      return `<div class="door-split" data-only-leaf="true">${leaf(section.pockets, 'left')}</div>`;
+    }
 
-    const order = hingeSide(unit) === 'right' ? body + leaf : leaf + body;
+    if (french) {
+      /**
+       * 観音開きは扉が左右2枚。ポケットは交互に振り分けて、
+       * 左右どちらの扉にも同じくらい並ぶようにする。
+       */
+      const left = section.pockets.filter((_, index) => index % 2 === 0);
+      const right = section.pockets.filter((_, index) => index % 2 === 1);
+      return `
+        <div class="door-split" data-french="true">
+          ${leaf(left, 'left')}${body}${leaf(right.length > 0 ? right : [], 'right')}
+        </div>`;
+    }
+
+    const order = hingeSide(unit) === 'right'
+      ? body + leaf(section.pockets, 'right')
+      : leaf(section.pockets, 'left') + body;
     return `<div class="door-split" data-hinge="${hingeSide(unit)}">${order}</div>`;
   }
 
@@ -384,6 +410,15 @@ const FridgeView = (function () {
         </label>
 
         <div class="field-row">
+          <span>扉の開き方</span>
+          <div class="seg">
+            ${Object.entries(DOOR_STYLE_LABELS).map(([key, label]) => `
+              <button class="seg-btn" type="button" data-unit-door="${unit.id}" data-door-value="${key}"
+                      aria-pressed="${unit.doorStyle === key}">${label}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="field-row">
           <span>ドアポケット</span>
           <div class="seg">
             ${[['on', 'あり'], ['off', 'なし']].map(([key, label]) => `
@@ -445,6 +480,14 @@ const FridgeView = (function () {
             </select>
           </label>
         </div>
+
+        ${compartment.form === 'DRAWER' ? '' : `
+          <label class="check-row">
+            <input type="checkbox" data-comp-newdoor="${compartment.id}" ${compartment.newDoor ? 'checked' : ''}>
+            <span>ここから別の扉にする</span>
+          </label>
+          <p class="size-hint">2ドア・3ドアのように扉が分かれている冷蔵庫は、
+             扉の一番上の段でこれを入れます。</p>`}
 
         <div class="field-row">
           <span>大きさ</span>
@@ -623,7 +666,7 @@ const FridgeView = (function () {
       /* 取っ手が無いときは代わりの掴みどころ。あるときは棒そのものを全部握らせる */
       const grips = unit.handle === 'NONE'
         ? [...unitEl.querySelectorAll('[data-handle-grip]')]
-        : [...unitEl.querySelectorAll('.door-handle, .drawer-pull')];
+        : [...unitEl.querySelectorAll('.door-handle:not(.leaf-handle), .drawer-pull')];
 
       grips.forEach((grip) => {
         /* 行き先は、その棒が載っている扉や引き出しの中だけに出す */
@@ -787,6 +830,20 @@ const FridgeView = (function () {
         const from = unit.compartments.findIndex((c) => c.id === id);
         const [moved] = unit.compartments.splice(from, 1);
         unit.compartments.splice(from + Number(delta), 0, moved);
+      });
+    });
+
+    on('[data-unit-door]', 'click', (el) => {
+      opts.onLayout((layout) => {
+        layout.find((u) => u.id === el.dataset.unitDoor).doorStyle = el.dataset.doorValue;
+      });
+    });
+
+    root.querySelectorAll('[data-comp-newdoor]').forEach((el) => {
+      el.addEventListener('change', () => {
+        opts.onLayout((layout) => {
+          findCompartment(layout, el.dataset.compNewdoor).newDoor = el.checked;
+        });
       });
     });
 

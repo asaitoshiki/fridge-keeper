@@ -2327,3 +2327,70 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 .door-leaf .comp-name { font-size: 9.5px; line-height: 1.3; }
 .door-leaf .chip { font-size: 10px; }
 .door-leaf .chip-icon { font-size: 11px; }
+
+/* --- 観音開き ------------------------------------------------------------- */
+
+/**
+ * 観音開きは扉の板が左右に2枚付くので、2列に並べると庫内が潰れる。
+ * この収納だけ横いっぱいを使う。
+ */
+.stage .unit[data-wide] { grid-column: 1 / -1; }
+
+/* 扉が左右2枚。蝶番は外側、取っ手は真ん中で向き合う */
+.door-split[data-french] > .door-leaf { flex: 0 0 22%; }
+.door-split[data-french] > .door-leaf[data-side="left"] .hinge { left: -4px; right: auto; }
+.door-split[data-french] > .door-leaf[data-side="right"] .hinge { right: -4px; left: auto; }
+
+/**
+ * 取っ手は扉の板の、向かい合う内側に付く。
+ * 庫内に描くと棚を横切ってしまい、何の線か分からなくなる。
+ */
+.door-leaf .leaf-handle {
+  display: block;
+  top: 14px; bottom: 14px;
+  width: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg,
+    var(--chrome-lo) 0%, var(--chrome-mid) 16%, var(--chrome-hi) 36%,
+    var(--chrome-mid) 62%, var(--chrome-lo) 100%);
+}
+.door-leaf[data-side="left"] .leaf-handle { right: 6px; left: auto; }
+.door-leaf[data-side="right"] .leaf-handle { left: 6px; right: auto; }
+.door-leaf[data-side="left"] { padding-right: 20px; }
+.door-leaf[data-side="right"] { padding-left: 20px; }
+.door-split:not([data-french]) .leaf-handle { display: none; }
+
+/* --- 冷蔵庫の型を選ぶ ----------------------------------------------------- */
+
+.shapes { max-height: 82vh; }
+.shape-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 2px;
+}
+.shape-btn {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "name rows" "note note";
+  gap: 2px 10px;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.shape-btn:hover { background: var(--surface-2); border-color: var(--line-strong); }
+.shape-name { grid-area: name; font-size: 14px; font-weight: 700; }
+.shape-rows {
+  grid-area: rows;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  align-self: center;
+}
+.shape-note { grid-area: note; font-size: 11.5px; line-height: 1.5; color: var(--ink-2); }

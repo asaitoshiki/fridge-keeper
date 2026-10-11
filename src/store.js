@@ -3,7 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.7.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
@@ -28,6 +28,7 @@ function defaultLayout() {
       color: null,
       handle: 'RIGHT',
       handleColor: null,
+      doorStyle: 'SINGLE',
       compartments: [
         comp('c-door', 'ドアポケット', 'FRIDGE', 'POCKET', 100, 52),
         comp('c-upper', '上段', 'FRIDGE', 'SHELF', 100, 68),
@@ -47,6 +48,7 @@ function defaultLayout() {
       /* 棚は扉を持たないので、取っ手も既定では出さない */
       handle: 'NONE',
       handleColor: null,
+      doorStyle: 'SINGLE',
       compartments: [
         comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
       ],
@@ -54,9 +56,15 @@ function defaultLayout() {
   ];
 }
 
-function comp(id, name, kind, form, width, height) {
-  return { id, name, kind, form, width, height, color: null };
+function comp(id, name, kind, form, width, height, newDoor) {
+  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor) };
 }
+
+/**
+ * 扉の開き方。
+ * FRENCH は観音開き。扉が左右2枚に割れ、取っ手は真ん中で向き合う。
+ */
+const DOOR_STYLE_LABELS = { SINGLE: '片開き', FRENCH: '観音開き' };
 
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
 
@@ -193,11 +201,14 @@ function normalize(parsed) {
     /* 取っ手を持たなかった頃の保存データは、見た目が変わらない側へ寄せる */
     if (!HANDLE_LABELS[unit.handle]) unit.handle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
     if (unit.handleColor === undefined) unit.handleColor = null;
+    if (!DOOR_STYLE_LABELS[unit.doorStyle]) unit.doorStyle = 'SINGLE';
     unit.compartments.forEach((c) => {
       if (!c.form) c.form = defaultFormFor(c.kind);
       if (!c.width) c.width = c.span === 1 ? 50 : 100;
       if (!c.height) c.height = 32 + (c.size || 2) * 18;
       if (c.color === undefined) c.color = null;
+      /* 扉の区切りを持たなかった頃の保存データは、扉が一枚だった頃の見え方を保つ */
+      if (c.newDoor === undefined) c.newDoor = false;
       delete c.span;
       delete c.size;
     });
@@ -283,6 +294,147 @@ function compartmentPath(layout, compartmentId) {
   if (!compartment) return '未収納';
   const unit = findUnitOf(layout, compartmentId);
   return `${unit.name} ${compartment.name}`;
+}
+
+
+/* ===========================================================================
+   冷蔵庫の型 — よくある形をそのまま選べるようにする。
+
+   段を一つずつ足して組み立てるのは、最初の一度とはいえ重い。
+   自分の冷蔵庫に近い型を選んでから、違うところだけ直せば済むようにする。
+   =========================================================================== */
+
+/**
+ * 型から段の並びを作る。
+ * d(...) は新しい扉の始まり。これを境に扉が分かれる。
+ */
+function shapeCompartments(rows) {
+  return rows.map((row, index) => comp(
+    newId('c'), row.name, row.kind, row.form,
+    row.width || 100, row.height || 68,
+    index === 0 ? false : Boolean(row.newDoor),
+  ));
+}
+
+const FRIDGE_SHAPES = [
+  {
+    id: 'two-door-top',
+    name: '2ドア（上が冷凍）',
+    note: '冷凍室が上、冷蔵室が下。一人暮らし向けに多い形。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: '冷凍室', kind: 'FREEZER', form: 'SHELF', height: 72 },
+      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52, newDoor: true },
+      { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '下段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+    ],
+  },
+  {
+    id: 'two-door-bottom',
+    name: '2ドア（下が冷凍）',
+    note: '冷蔵室が上、冷凍室の引き出しが下。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '下段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', height: 84 },
+    ],
+  },
+  {
+    id: 'three-door',
+    name: '3ドア',
+    note: '冷蔵室・冷凍室・野菜室。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '中段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', height: 76 },
+      { name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', height: 76 },
+    ],
+  },
+  {
+    id: 'five-door',
+    name: '5ドア',
+    note: '製氷室と小さな冷凍室が横に並ぶ、家族向けの標準的な形。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '中段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', height: 52 },
+      { name: '製氷室', kind: 'FREEZER', form: 'DRAWER', width: 50, height: 52 },
+      { name: '小さな冷凍室', kind: 'FREEZER', form: 'DRAWER', width: 50, height: 52 },
+      { name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', height: 76 },
+      { name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', height: 76 },
+    ],
+  },
+  {
+    id: 'french',
+    name: '観音開き（6ドア）',
+    note: '冷蔵室の扉が左右2枚に割れる大型。ポケットは両方の扉に付く。',
+    doorStyle: 'FRENCH',
+    rows: [
+      { name: '左ポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '右ポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '中段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: '下段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
+      { name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', height: 52 },
+      { name: '製氷室', kind: 'FREEZER', form: 'DRAWER', width: 50, height: 52 },
+      { name: '小さな冷凍室', kind: 'FREEZER', form: 'DRAWER', width: 50, height: 52 },
+      { name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', height: 76 },
+      { name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', height: 76 },
+    ],
+  },
+  {
+    id: 'one-door',
+    name: '1ドア',
+    note: '小型。中に小さな冷凍室がある形。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '冷凍室', kind: 'FREEZER', form: 'SHELF', height: 52 },
+      { name: '棚', kind: 'FRIDGE', form: 'SHELF', height: 76 },
+    ],
+  },
+  {
+    id: 'freezer-only',
+    name: '冷凍庫（単体）',
+    note: 'セカンド冷凍庫。引き出しだけの形。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: '上の段', kind: 'FREEZER', form: 'DRAWER', height: 64 },
+      { name: '中の段', kind: 'FREEZER', form: 'DRAWER', height: 64 },
+      { name: '下の段', kind: 'FREEZER', form: 'DRAWER', height: 64 },
+    ],
+  },
+  {
+    id: 'pantry',
+    name: '常温の棚',
+    note: '冷蔵庫ではない置き場所。調味料や乾物に。',
+    doorStyle: 'SINGLE',
+    rows: [
+      { name: '上の棚', kind: 'ROOM_TEMP', form: 'SHELF', height: 68 },
+      { name: '下の棚', kind: 'ROOM_TEMP', form: 'SHELF', height: 68 },
+    ],
+  },
+];
+
+/** 型から収納を一つ作る。棚は扉も取っ手も持たない */
+function unitFromShape(shape, name) {
+  const isShelf = shape.id === 'pantry';
+  return {
+    id: newId('unit'),
+    name: name || shape.name,
+    type: isShelf ? 'SHELF' : 'FRIDGE',
+    color: null,
+    handle: isShelf ? 'NONE' : 'RIGHT',
+    handleColor: null,
+    doorStyle: shape.doorStyle,
+    compartments: shapeCompartments(shape.rows),
+  };
 }
 
 /* --- 初回のサンプルデータ ------------------------------------------------ */

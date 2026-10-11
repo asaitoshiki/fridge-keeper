@@ -53,12 +53,14 @@
   const shareDialog = buildShareDialog();
   const scanDialog = buildScanDialog();
   const foodsDialog = buildFoodsDialog();
+  const shapesDialog = buildShapesDialog();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
   document.body.appendChild(shareDialog);
   document.body.appendChild(scanDialog);
   document.body.appendChild(foodsDialog);
+  document.body.appendChild(shapesDialog);
 
   applyTheme();
   render();
@@ -523,7 +525,11 @@
           </p>
           <div class="settings-actions">
             <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
+            <button class="btn btn-ghost" type="button" id="pick-shape">型から選ぶ</button>
           </div>
+          <p class="hint">
+            いまの形：${state.layout.map((u) => `${esc(u.name)}（${u.compartments.length}段）`).join('、')}
+          </p>
         </section>
 
         <section class="settings-block">
@@ -1699,6 +1705,9 @@
       });
     }
 
+    const pickShape = root.querySelector('#pick-shape');
+    if (pickShape) pickShape.addEventListener('click', openShapes);
+
     const exportButton = root.querySelector('#export-data');
     if (exportButton) exportButton.addEventListener('click', downloadBackup);
 
@@ -1779,6 +1788,73 @@
     );
   }
 
+
+
+  /* --- 冷蔵庫の型から選ぶ --------------------------------------------------- */
+
+  /**
+   * よくある冷蔵庫の形を、そのまま選べるようにする。
+   * 段を一つずつ足して組み立てるのは、最初の一度とはいえ重い。
+   * 近い型を選んでから、違うところだけ直せば済む。
+   */
+  function buildShapesDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'shapes';
+    el.innerHTML = `
+      <div class="sheet-form shapes">
+        <div class="form-head">
+          <h2>冷蔵庫の型</h2>
+          <button class="icon-btn" type="button" id="shapes-close" aria-label="閉じる">×</button>
+        </div>
+        <p class="hint">近い型を選んでください。選んだあと、段の名前や大きさは自由に直せます。</p>
+        <div class="shape-list" id="shape-list"></div>
+      </div>`;
+    el.querySelector('#shapes-close').addEventListener('click', () => el.close());
+    return el;
+  }
+
+  function openShapes() {
+    shapesDialog.querySelector('#shape-list').innerHTML = FRIDGE_SHAPES.map((shape) => `
+      <button class="shape-btn" type="button" data-shape="${shape.id}">
+        <span class="shape-name">${esc(shape.name)}</span>
+        <span class="shape-note">${esc(shape.note)}</span>
+        <span class="shape-rows">${shape.rows.length}段</span>
+      </button>`).join('');
+
+    shapesDialog.querySelectorAll('[data-shape]').forEach((btn) => {
+      btn.addEventListener('click', () => applyShape(btn.dataset.shape));
+    });
+    shapesDialog.showModal();
+  }
+
+  /**
+   * 型を当てる。
+   * いまの収納を置き換えるか、隣に足すかは選んでもらう。
+   * 冷蔵庫とセカンド冷凍庫の両方を持っている家があるため。
+   */
+  function applyShape(shapeId) {
+    const shape = FRIDGE_SHAPES.find((x) => x.id === shapeId);
+    if (!shape) return;
+    shapesDialog.close();
+
+    const inside = state.items.filter((i) => findCompartment(state.layout, i.compartmentId)).length;
+    askConfirm(
+      `「${shape.name}」にしますか`,
+      `いまの収納（${state.layout.length}個）を置き換えます。`
+        + (inside > 0 ? `入っている${inside}件は「買ってきたもの」に戻ります。` : ''),
+      () => {
+        state.items.forEach((item) => { item.compartmentId = null; });
+        state.layout = [unitFromShape(shape)];
+        selection = { type: 'unit', id: state.layout[0].id };
+        view = 'fridge';
+        fridgeMode = 'figure';
+        editingLayout = true;
+        commit();
+        toast(`「${shape.name}」にしました`);
+      },
+      'この型にする',
+    );
+  }
 
   /* --- よく使う食品から選ぶ ------------------------------------------------ */
 
