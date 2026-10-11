@@ -142,10 +142,9 @@
     return `
       <div class="pane-head">
         <div class="segmented">${seg('figure', '図')}${seg('expiry', '期限順')}</div>
-        ${fridgeMode === 'figure'
-          ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="${editingLayout}">
-               ${editingLayout ? '編集を終える' : '配置を編集'}
-             </button>`
+        ${/* 冷蔵庫の形は一度決めたら変えないので、入口は設定に置いてある */ ''}
+        ${editingLayout
+          ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="true">編集を終える</button>`
           : ''}
       </div>`;
   }
@@ -514,6 +513,17 @@
             およびデータの保全を保証するものではありません。
             本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
           </p>
+        </section>
+
+        <section class="settings-block">
+          <h3>冷蔵庫の形</h3>
+          <p class="hint">
+            段の数・名前・大きさ・色・取っ手・ドアポケットの有り無しを変えられます。
+            冷蔵庫は買い替えるまで変わらないので、最初に一度だけ整えておけば足ります。
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
+          </div>
         </section>
 
         <section class="settings-block">
@@ -932,6 +942,7 @@
         onAddUnit: addUnit,
         onDeleteCompartment: deleteCompartment,
         onDeleteUnit: deleteUnit,
+        onTogglePockets: togglePockets,
       });
     }
   }
@@ -954,6 +965,44 @@
   function select(type, id) {
     selection = { type, id };
     render();
+  }
+
+  /**
+   * ドアポケットの有り無し。
+   * 無しにすると扉の板ごと消えるので、中の食材がどうなるかを先に見せてから消す。
+   */
+  function togglePockets(unitId, on) {
+    const unit = state.layout.find((u) => u.id === unitId);
+    if (!unit) return;
+    const pockets = unit.compartments.filter((c) => c.form === 'POCKET');
+
+    if (on) {
+      if (pockets.length > 0) return;
+      unit.compartments.unshift({
+        id: newId('c'), name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET',
+        width: 100, height: 52, color: null,
+      });
+      selection = { type: 'unit', id: unitId };
+      commit();
+      return;
+    }
+
+    if (pockets.length === 0) return;
+    const ids = pockets.map((c) => c.id);
+    const inside = state.items.filter((i) => ids.includes(i.compartmentId)).length;
+    askConfirm(
+      'ドアポケットを無しにしますか',
+      inside > 0
+        ? `ドアポケット${pockets.length}段が消えます。中の${inside}件は「買ってきたもの」に戻ります。`
+        : `ドアポケット${pockets.length}段が消えます。`,
+      () => {
+        releaseItemsIn(ids);
+        unit.compartments = unit.compartments.filter((c) => c.form !== 'POCKET');
+        selection = { type: 'unit', id: unitId };
+        commit();
+      },
+      '無しにする',
+    );
   }
 
   function addCompartment(unitId) {
@@ -1637,6 +1686,18 @@
         render();
       });
     });
+
+    const editLayout = root.querySelector('#edit-layout');
+    if (editLayout) {
+      editLayout.addEventListener('click', () => {
+        /* 形を直すには図が見えていないと話にならないので、冷蔵庫タブへ連れていく */
+        view = 'fridge';
+        fridgeMode = 'figure';
+        editingLayout = true;
+        selection = { type: 'unit', id: state.layout[0] ? state.layout[0].id : null };
+        render();
+      });
+    }
 
     const exportButton = root.querySelector('#export-data');
     if (exportButton) exportButton.addEventListener('click', downloadBackup);

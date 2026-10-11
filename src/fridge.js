@@ -116,6 +116,13 @@ const FridgeView = (function () {
    * 実際の冷蔵庫は「棚が何段か入った扉」の下に「引き出しが積まれる」構造なので、
    * 連続する棚・ドアポケットを1枚の扉として束ね、引き出しはそれぞれ独立させる。
    */
+  /**
+   * 段を、扉ひとつ分と引き出しひとつ分の区画にまとめる。
+   *
+   * 扉の区画は、扉の内側に付くドアポケットと、庫内の棚とに分けて持つ。
+   * 実物のドアポケットは扉に付いていて棚とは別の面にあるので、
+   * 同じ列に積むと置き場所を思い出すときの手がかりにならない。
+   */
   function sections(compartments) {
     const out = [];
     let door = null;
@@ -123,10 +130,11 @@ const FridgeView = (function () {
     compartments.forEach((compartment) => {
       if (compartment.form !== 'DRAWER') {
         if (!door) {
-          door = { type: 'door', items: [] };
+          door = { type: 'door', pockets: [], shelves: [] };
           out.push(door);
         }
-        door.items.push(compartment);
+        if (compartment.form === 'POCKET') door.pockets.push(compartment);
+        else door.shelves.push(compartment);
         return;
       }
       door = null;
@@ -139,6 +147,16 @@ const FridgeView = (function () {
     });
 
     return out;
+  }
+
+  /**
+   * 扉はどちら側へ開くか。
+   * 蝶番は取っ手の反対側にあり、開いた扉はそちら側に見える。
+   * 取っ手が上下や無しのときは手がかりが無いので左に寄せる。
+   */
+  function hingeSide(unit) {
+    if (unit.handle === 'LEFT') return 'right';
+    return 'left';
   }
 
   /* --- 描画 ------------------------------------------------------------ */
@@ -193,7 +211,7 @@ const FridgeView = (function () {
         <div class="case" style="${caseStyle(unit)}" data-case="${unit.id}">
           ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
           <div class="unit-body">
-            ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts, zonesFor)).join('')}
+            ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts, zonesFor, unit)).join('')}
             ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
           </div>
         </div>
@@ -218,18 +236,42 @@ const FridgeView = (function () {
   }
 
   /** 扉は棚を抱えた一枚板、引き出しは前板と取っ手を持つ箱として描く */
-  function sectionMarkup(section, state, opts, zonesFor) {
-    if (section.type === 'door') {
-      return `
-        <div class="door">
-          <div class="door-inner">
-            ${packRows(section.items).map((row) => rowMarkup(row, state, opts, false, zonesFor)).join('')}
-          </div>
-          <span class="door-handle" aria-hidden="true"></span>
-          ${zonesFor()}
-        </div>`;
-    }
+  function sectionMarkup(section, state, opts, zonesFor, unit) {
+    if (section.type === 'door') return doorMarkup(section, state, opts, zonesFor, unit);
     return packRows(section.items).map((row) => rowMarkup(row, state, opts, true, zonesFor)).join('');
+  }
+
+  /**
+   * 扉を開いた形。
+   * 蝶番側に扉の板（ドアポケット）、その隣に庫内の棚を置く。
+   * ドアポケットを持たない冷蔵庫もあるので、無ければ扉の板ごと出さない。
+   */
+  function doorMarkup(section, state, opts, zonesFor, unit) {
+    const body = `
+      <div class="door">
+        <div class="door-inner">
+          ${packRows(section.shelves).map((row) => rowMarkup(row, state, opts, false, zonesFor)).join('')}
+        </div>
+        <span class="door-handle" aria-hidden="true"></span>
+        ${zonesFor()}
+      </div>`;
+
+    if (section.pockets.length === 0) return body;
+
+    const leaf = `
+      <div class="door-leaf">
+        <span class="leaf-tag" aria-hidden="true">ドア</span>
+        <div class="leaf-inner">
+          ${section.pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
+        </div>
+        <span class="hinge" aria-hidden="true"></span>
+      </div>`;
+
+    /* 棚が一つも無ければ、扉の板だけで横幅いっぱいを使う */
+    if (section.shelves.length === 0) return `<div class="door-split" data-only-leaf="true">${leaf}</div>`;
+
+    const order = hingeSide(unit) === 'right' ? body + leaf : leaf + body;
+    return `<div class="door-split" data-hinge="${hingeSide(unit)}">${order}</div>`;
   }
 
   function rowMarkup(row, state, opts, asDrawer, zonesFor) {
@@ -318,6 +360,9 @@ const FridgeView = (function () {
   }
 
   function unitSettings(unit) {
+    /* ドアポケットを持たない冷蔵庫もある。扉の板を出すかどうかはここで決める */
+    const hasPockets = unit.compartments.some((c) => c.form === 'POCKET');
+
     return `
       <section class="settings">
         <header class="settings-head">
@@ -337,6 +382,15 @@ const FridgeView = (function () {
             <option value="SHELF" ${unit.type === 'SHELF' ? 'selected' : ''}>棚</option>
           </select>
         </label>
+
+        <div class="field-row">
+          <span>ドアポケット</span>
+          <div class="seg">
+            ${[['on', 'あり'], ['off', 'なし']].map(([key, label]) => `
+              <button class="seg-btn" type="button" data-unit-pockets="${unit.id}" data-pockets-value="${key}"
+                      aria-pressed="${hasPockets === (key === 'on')}">${label}</button>`).join('')}
+          </div>
+        </div>
 
         <div class="field-row">
           <span>取っ手</span>
@@ -734,6 +788,10 @@ const FridgeView = (function () {
         const [moved] = unit.compartments.splice(from, 1);
         unit.compartments.splice(from + Number(delta), 0, moved);
       });
+    });
+
+    on('[data-unit-pockets]', 'click', (el) => {
+      opts.onTogglePockets(el.dataset.unitPockets, el.dataset.pocketsValue === 'on');
     });
 
     on('[data-del-comp]', 'click', (el) => opts.onDeleteCompartment(el.dataset.delComp));

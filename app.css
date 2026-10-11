@@ -2269,3 +2269,61 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   cursor: pointer;
 }
 .step-btn:hover { background: var(--surface-2); }
+
+/* --- 扉を開いた形 --------------------------------------------------------- */
+
+/**
+ * 実物のドアポケットは扉の内側に付いていて、庫内の棚とは別の面にある。
+ * 蝶番側に扉の板を置き、その隣に庫内を並べて「扉を開けた状態」を写す。
+ */
+.door-split { display: flex; gap: 6px; align-items: stretch; }
+.door-split > .door { flex: 1 1 auto; min-width: 0; }
+.door-split[data-only-leaf] > .door-leaf { flex: 1 1 auto; }
+
+/* 扉の板。庫内より一段明るくして、別の面だと分かるようにする */
+.door-leaf {
+  position: relative;
+  flex: 0 0 38%;
+  min-width: 0;
+  border-radius: 8px;
+  padding: 7px 7px 8px;
+  background: linear-gradient(179deg, var(--panel-1) 0%, var(--panel-2) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--metal-1),
+    inset 0 -2px 3px -2px var(--ao),
+    0 2px 3px -1px var(--ao-soft);
+}
+.leaf-tag {
+  display: block;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+  padding: 0 1px 4px;
+}
+.leaf-inner { display: flex; flex-direction: column; gap: 6px; }
+
+/* 蝶番。扉がどちらに開くかを一本の線で示す */
+.hinge {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--chrome-mid), var(--chrome-lo));
+}
+.door-split[data-hinge="left"] .hinge { left: -4px; }
+.door-split[data-hinge="right"] .hinge { right: -4px; }
+.door-split[data-only-leaf] .hinge { display: none; }
+
+/* 扉側の段は浅い受け皿。庫内の棚より薄く見せる */
+.door-leaf .comp {
+  min-height: calc(var(--h, 52px) * var(--scale, 1) * .72);
+  padding: 4px 6px 6px;
+}
+.door-leaf .comp-head { gap: 4px; }
+/* 扉の板は狭い。種類の札は庫内と同じで分かるので省き、名前は小さく収める */
+.door-leaf .comp-kind { display: none; }
+.door-leaf .comp-name { font-size: 9.5px; line-height: 1.3; }
+.door-leaf .chip { font-size: 10px; }
+.door-leaf .chip-icon { font-size: 11px; }
