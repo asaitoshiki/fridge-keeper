@@ -2443,3 +2443,16 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   margin-left: 6px;
 }
 .seg-wrap { flex-wrap: wrap; border-radius: 14px; }
+
+/* --- 段を長押しして運ぶ --------------------------------------------------- */
+
+/* 長押しで文字選択やメニューが出ないようにする */
+.stage[data-editing] .comp { -webkit-touch-callout: none; }
+
+/* 掴んだ瞬間に少し浮かせる。掴めたことが指の下で分かるように */
+.comp.is-lifted {
+  transform: scale(1.03);
+  box-shadow: 0 10px 22px -10px var(--ao), 0 0 0 2px var(--accent);
+  z-index: 9;
+  transition: transform .12s, box-shadow .12s;
+}

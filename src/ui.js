@@ -954,6 +954,7 @@
         onLayout: applyLayout,
         onSelect: select,
         onAddCompartment: addCompartment,
+        onAddCompartmentNear: addCompartmentNear,
         onAddUnit: addUnit,
         onDeleteCompartment: deleteCompartment,
         onDeleteUnit: deleteUnit,
@@ -1020,6 +1021,41 @@
     );
   }
 
+  /**
+   * 選んだ段のすぐ上か下に段を足す。
+   * 一番下にしか足せないと、上段の間に棚を一枚入れたいだけでも並べ替えが要る。
+   * 形と種類は隣の段に合わせる。扉の中に足せば扉の段、引き出しの並びなら引き出し。
+   */
+  function addCompartmentNear(compartmentId, where) {
+    const unit = findUnitOf(state.layout, compartmentId);
+    if (!unit) return;
+    const index = unit.compartments.findIndex((c) => c.id === compartmentId);
+    const neighbour = unit.compartments[index];
+    const created = {
+      id: newId('c'),
+      name: '新しい段',
+      kind: neighbour.kind,
+      form: neighbour.form,
+      width: 100,
+      height: neighbour.form === 'POCKET' ? 44 : 68,
+      color: null,
+      newDoor: false,
+    };
+
+    if (where === 'before') {
+      /* 扉の一番上の段の上に足すときは、扉の始まりを新しい段へ引き継ぐ */
+      if (neighbour.newDoor) {
+        created.newDoor = true;
+        neighbour.newDoor = false;
+      }
+      unit.compartments.splice(index, 0, created);
+    } else {
+      unit.compartments.splice(index + 1, 0, created);
+    }
+    selection = { type: 'comp', id: created.id };
+    commit();
+  }
+
   function addCompartment(unitId) {
     const unit = state.layout.find((u) => u.id === unitId);
     const created = {
@@ -1030,6 +1066,7 @@
       width: 100,
       height: 68,
       color: null,
+      newDoor: false,
     };
     unit.compartments.push(created);
     selection = { type: 'comp', id: created.id };
