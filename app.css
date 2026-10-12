@@ -677,13 +677,20 @@ dialog::backdrop { background: rgba(10, 20, 26, .55); }
 /* 収納は横に並べる。全体を一度に見渡せるほうが、どこに入れるか迷わない。
    段の高さはユーザーが決めた値をそのまま使わず、この倍率で縮めて描く。 */
 .stage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  --scale: .68;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 扉の無い収納だけのときは、これまでどおり2列に並べる */
+.grid-block {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-items: start;
-  --scale: .68;
-  -webkit-user-select: none;
-  user-select: none;
 }
 .stage > .unit-add { grid-column: 1 / -1; }
 
@@ -2270,96 +2277,6 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 }
 .step-btn:hover { background: var(--surface-2); }
 
-/* --- 扉を開いた形 --------------------------------------------------------- */
-
-/**
- * 実物のドアポケットは扉の内側に付いていて、庫内の棚とは別の面にある。
- * 蝶番側に扉の板を置き、その隣に庫内を並べて「扉を開けた状態」を写す。
- */
-.door-split { display: flex; gap: 6px; align-items: stretch; }
-.door-split > .door { flex: 1 1 auto; min-width: 0; }
-.door-split[data-only-leaf] > .door-leaf { flex: 1 1 auto; }
-
-/* 扉の板。庫内より一段明るくして、別の面だと分かるようにする */
-.door-leaf {
-  position: relative;
-  flex: 0 0 38%;
-  min-width: 0;
-  border-radius: 8px;
-  padding: 7px 7px 8px;
-  background: linear-gradient(179deg, var(--panel-1) 0%, var(--panel-2) 100%);
-  box-shadow:
-    inset 0 1px 0 var(--metal-1),
-    inset 0 -2px 3px -2px var(--ao),
-    0 2px 3px -1px var(--ao-soft);
-}
-.leaf-tag {
-  display: block;
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  color: var(--ink-3);
-  padding: 0 1px 4px;
-}
-.leaf-inner { display: flex; flex-direction: column; gap: 6px; }
-
-/* 蝶番。扉がどちらに開くかを一本の線で示す */
-.hinge {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, var(--chrome-mid), var(--chrome-lo));
-}
-.door-split[data-hinge="left"] .hinge { left: -4px; }
-.door-split[data-hinge="right"] .hinge { right: -4px; }
-.door-split[data-only-leaf] .hinge { display: none; }
-
-/* 扉側の段は浅い受け皿。庫内の棚より薄く見せる */
-.door-leaf .comp {
-  min-height: calc(var(--h, 52px) * var(--scale, 1) * .72);
-  padding: 4px 6px 6px;
-}
-.door-leaf .comp-head { gap: 4px; }
-/* 扉の板は狭い。種類の札は庫内と同じで分かるので省き、名前は小さく収める */
-.door-leaf .comp-kind { display: none; }
-.door-leaf .comp-name { font-size: 9.5px; line-height: 1.3; }
-.door-leaf .chip { font-size: 10px; }
-.door-leaf .chip-icon { font-size: 11px; }
-
-/* --- 観音開き ------------------------------------------------------------- */
-
-/**
- * 観音開きは扉の板が左右に2枚付くので、2列に並べると庫内が潰れる。
- * この収納だけ横いっぱいを使う。
- */
-.stage .unit[data-wide] { grid-column: 1 / -1; }
-
-/* 扉が左右2枚。蝶番は外側、取っ手は真ん中で向き合う */
-.door-split[data-french] > .door-leaf { flex: 0 0 22%; }
-.door-split[data-french] > .door-leaf[data-side="left"] .hinge { left: -4px; right: auto; }
-.door-split[data-french] > .door-leaf[data-side="right"] .hinge { right: -4px; left: auto; }
-
-/**
- * 取っ手は扉の板の、向かい合う内側に付く。
- * 庫内に描くと棚を横切ってしまい、何の線か分からなくなる。
- */
-.door-leaf .leaf-handle {
-  display: block;
-  top: 14px; bottom: 14px;
-  width: 8px;
-  border-radius: 4px;
-  background: linear-gradient(90deg,
-    var(--chrome-lo) 0%, var(--chrome-mid) 16%, var(--chrome-hi) 36%,
-    var(--chrome-mid) 62%, var(--chrome-lo) 100%);
-}
-.door-leaf[data-side="left"] .leaf-handle { right: 6px; left: auto; }
-.door-leaf[data-side="right"] .leaf-handle { left: 6px; right: auto; }
-.door-leaf[data-side="left"] { padding-right: 20px; }
-.door-leaf[data-side="right"] { padding-left: 20px; }
-.door-split:not([data-french]) .leaf-handle { display: none; }
-
 /* --- 冷蔵庫の型を選ぶ ----------------------------------------------------- */
 
 .shapes { max-height: 82vh; }
@@ -2394,3 +2311,135 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   align-self: center;
 }
 .shape-note { grid-area: note; font-size: 11.5px; line-height: 1.5; color: var(--ink-2); }
+
+
+/* --- 扉を開いた冷蔵庫 ------------------------------------------------------ */
+
+/**
+ * 本体を片側の列に、開いた扉を隣の列に描く。
+ * 扉の下は空くので、扉の無い収納をそこへ入れる。
+ */
+.open-block {
+  display: grid;
+  grid-template-columns: minmax(0, 56fr) minmax(0, 44fr);
+  align-items: start;
+}
+.open-block[data-side="left"] { grid-template-columns: minmax(0, 44fr) minmax(0, 56fr); }
+.open-block[data-side="left"] > .open-main { order: 2; }
+.open-block[data-side="left"] > .open-side { order: 1; }
+
+.open-side { min-width: 0; }
+.swings { position: relative; }
+
+/* 扉の下の収納。冷蔵庫の脇に置くので、本体と少し間を空ける */
+.open-tenants {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+}
+.open-block[data-side="right"] .open-tenants { padding-left: 10px; }
+.open-block[data-side="left"] .open-tenants { padding-right: 10px; }
+
+/* 扉は開けた状態で描くので、庫内に取っ手の余白は取らない */
+.door[data-open] { padding: 10px; }
+.door-empty {
+  margin: 0;
+  padding: 18px 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: .1em;
+}
+
+/**
+ * 開いた扉。蝶番を軸に手前へ回して、ポケットの付いた内側を見せる。
+ * 位置と高さは、扉が付く庫内に合わせてあとから測って決める。
+ */
+.door-swing[data-swing] {
+  position: absolute;
+  top: 0;
+  width: 78%;
+}
+.open-block[data-side="right"] .door-swing[data-swing] { left: 0; }
+.open-block[data-side="left"] .door-swing[data-swing] { right: 0; }
+
+.swing-panel {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 8px 10px;
+  border-radius: 6px 10px 10px 6px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, .07) 0%, transparent 22%),
+    linear-gradient(179deg, var(--panel-1) 0%, var(--panel-2) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--metal-1),
+    inset -2px 0 0 var(--metal-3),
+    0 10px 18px -12px var(--ao),
+    0 0 0 1px var(--ao-soft);
+  transform-origin: left center;
+  transform: perspective(520px) rotateY(-26deg);
+}
+.door-swing[data-side="left"] .swing-panel {
+  border-radius: 10px 6px 6px 10px;
+  background:
+    linear-gradient(270deg, rgba(0, 0, 0, .07) 0%, transparent 22%),
+    linear-gradient(179deg, var(--panel-1) 0%, var(--panel-2) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--metal-1),
+    inset 2px 0 0 var(--metal-3),
+    0 10px 18px -12px var(--ao),
+    0 0 0 1px var(--ao-soft);
+  transform-origin: right center;
+  transform: perspective(520px) rotateY(26deg);
+}
+
+.swing-tag {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--ink-3);
+}
+.swing-inner { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
+
+/* ドアポケットは扉に付いた浅い受け皿。棚より薄く見せる */
+.swing-inner .comp {
+  min-height: calc(var(--h, 52px) * var(--scale, 1) * .72);
+  padding: 4px 6px 6px;
+}
+.swing-inner .comp-kind { display: none; }
+.swing-inner .comp-name { font-size: 9.5px; line-height: 1.3; }
+.swing-inner .chip { font-size: 10px; }
+
+/* --- 観音開き ------------------------------------------------------------- */
+
+/* 扉が左右2枚。庫内を挟んで、両側に開いた扉を描く */
+.french-row { display: flex; gap: 4px; align-items: stretch; }
+.french-row > .door { flex: 1 1 auto; min-width: 0; }
+.french-row > .door-swing { flex: 0 0 24%; min-width: 0; display: flex; }
+.french-row > .door-swing > .swing-panel { flex: 1 1 auto; }
+.french-row > .door-swing[data-side="left"] .swing-panel {
+  transform-origin: right center;
+  transform: perspective(520px) rotateY(22deg);
+}
+.french-row > .door-swing[data-side="right"] .swing-panel {
+  transform-origin: left center;
+  transform: perspective(520px) rotateY(-22deg);
+}
+
+/* 設定の、収納ごとの扉。名前の下に選択肢を折り返して並べる */
+.unit-doors { display: flex; flex-direction: column; gap: 10px; }
+.unit-door-row { display: flex; flex-direction: column; gap: 5px; }
+.unit-door-name { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.unit-door-name em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-left: 6px;
+}
+.seg-wrap { flex-wrap: wrap; border-radius: 14px; }

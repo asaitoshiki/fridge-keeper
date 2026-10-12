@@ -3,7 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.8.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
@@ -28,9 +28,12 @@ function defaultLayout() {
       color: null,
       handle: 'RIGHT',
       handleColor: null,
-      doorStyle: 'SINGLE',
+      doorStyle: 'RIGHT',
       compartments: [
-        comp('c-door', 'ドアポケット', 'FRIDGE', 'POCKET', 100, 52),
+        /* 扉の内側のポケット。卵・小物・ボトルの三段が日本の冷蔵庫によくある形 */
+        comp('c-egg', '卵ケース', 'FRIDGE', 'POCKET', 100, 44),
+        comp('c-door-s', '小物ポケット', 'FRIDGE', 'POCKET', 100, 44),
+        comp('c-door', 'ボトルポケット', 'FRIDGE', 'POCKET', 100, 60),
         comp('c-upper', '上段', 'FRIDGE', 'SHELF', 100, 68),
         comp('c-middle', '中段', 'FRIDGE', 'SHELF', 100, 68),
         comp('c-chilled', 'チルド室', 'FRIDGE', 'DRAWER', 100, 52),
@@ -48,7 +51,7 @@ function defaultLayout() {
       /* 棚は扉を持たないので、取っ手も既定では出さない */
       handle: 'NONE',
       handleColor: null,
-      doorStyle: 'SINGLE',
+      doorStyle: 'NONE',
       compartments: [
         comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
       ],
@@ -61,10 +64,17 @@ function comp(id, name, kind, form, width, height, newDoor) {
 }
 
 /**
- * 扉の開き方。
- * FRENCH は観音開き。扉が左右2枚に割れ、取っ手は真ん中で向き合う。
+ * 扉の開き方。図では扉を開けた状態で描く。
+ * RIGHT は右へ開く（扉が冷蔵庫の右隣に開いて見える）。LEFT はその逆。
+ * FRENCH は観音開きで、扉が左右2枚に割れる。
+ * NONE は扉の無い収納。棚やラックのように、開くものが無い。
  */
-const DOOR_STYLE_LABELS = { SINGLE: '片開き', FRENCH: '観音開き' };
+const DOOR_STYLE_LABELS = { RIGHT: '右に開く', LEFT: '左に開く', FRENCH: '観音開き', NONE: '開かない' };
+
+/** 扉が横に開くか。開いた扉は収納の隣の列に描く */
+function opensSideways(unit) {
+  return unit.doorStyle === 'RIGHT' || unit.doorStyle === 'LEFT';
+}
 
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
 
@@ -201,7 +211,8 @@ function normalize(parsed) {
     /* 取っ手を持たなかった頃の保存データは、見た目が変わらない側へ寄せる */
     if (!HANDLE_LABELS[unit.handle]) unit.handle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
     if (unit.handleColor === undefined) unit.handleColor = null;
-    if (!DOOR_STYLE_LABELS[unit.doorStyle]) unit.doorStyle = 'SINGLE';
+    /* 片開きしか無かった頃の保存データは、冷蔵庫なら右開き、棚なら扉なしに寄せる */
+    if (!DOOR_STYLE_LABELS[unit.doorStyle]) unit.doorStyle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
     unit.compartments.forEach((c) => {
       if (!c.form) c.form = defaultFormFor(c.kind);
       if (!c.width) c.width = c.span === 1 ? 50 : 100;
@@ -321,7 +332,7 @@ const FRIDGE_SHAPES = [
     id: 'two-door-top',
     name: '2ドア（上が冷凍）',
     note: '冷凍室が上、冷蔵室が下。一人暮らし向けに多い形。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'RIGHT',
     rows: [
       { name: '冷凍室', kind: 'FREEZER', form: 'SHELF', height: 72 },
       { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52, newDoor: true },
@@ -333,7 +344,7 @@ const FRIDGE_SHAPES = [
     id: 'two-door-bottom',
     name: '2ドア（下が冷凍）',
     note: '冷蔵室が上、冷凍室の引き出しが下。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'RIGHT',
     rows: [
       { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
       { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
@@ -345,7 +356,7 @@ const FRIDGE_SHAPES = [
     id: 'three-door',
     name: '3ドア',
     note: '冷蔵室・冷凍室・野菜室。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'RIGHT',
     rows: [
       { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
       { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
@@ -358,9 +369,11 @@ const FRIDGE_SHAPES = [
     id: 'five-door',
     name: '5ドア',
     note: '製氷室と小さな冷凍室が横に並ぶ、家族向けの標準的な形。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'RIGHT',
     rows: [
-      { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '卵ケース', kind: 'FRIDGE', form: 'POCKET', height: 44 },
+      { name: '小物ポケット', kind: 'FRIDGE', form: 'POCKET', height: 44 },
+      { name: 'ボトルポケット', kind: 'FRIDGE', form: 'POCKET', height: 60 },
       { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
       { name: '中段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
       { name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', height: 52 },
@@ -376,8 +389,10 @@ const FRIDGE_SHAPES = [
     note: '冷蔵室の扉が左右2枚に割れる大型。ポケットは両方の扉に付く。',
     doorStyle: 'FRENCH',
     rows: [
-      { name: '左ポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
-      { name: '右ポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: '卵ケース', kind: 'FRIDGE', form: 'POCKET', height: 44 },
+      { name: '小物ポケット', kind: 'FRIDGE', form: 'POCKET', height: 44 },
+      { name: '調味料ポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
+      { name: 'ボトルポケット', kind: 'FRIDGE', form: 'POCKET', height: 60 },
       { name: '上段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
       { name: '中段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
       { name: '下段', kind: 'FRIDGE', form: 'SHELF', height: 68 },
@@ -392,7 +407,7 @@ const FRIDGE_SHAPES = [
     id: 'one-door',
     name: '1ドア',
     note: '小型。中に小さな冷凍室がある形。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'RIGHT',
     rows: [
       { name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET', height: 52 },
       { name: '冷凍室', kind: 'FREEZER', form: 'SHELF', height: 52 },
@@ -403,7 +418,7 @@ const FRIDGE_SHAPES = [
     id: 'freezer-only',
     name: '冷凍庫（単体）',
     note: 'セカンド冷凍庫。引き出しだけの形。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'NONE',
     rows: [
       { name: '上の段', kind: 'FREEZER', form: 'DRAWER', height: 64 },
       { name: '中の段', kind: 'FREEZER', form: 'DRAWER', height: 64 },
@@ -414,7 +429,7 @@ const FRIDGE_SHAPES = [
     id: 'pantry',
     name: '常温の棚',
     note: '冷蔵庫ではない置き場所。調味料や乾物に。',
-    doorStyle: 'SINGLE',
+    doorStyle: 'NONE',
     rows: [
       { name: '上の棚', kind: 'ROOM_TEMP', form: 'SHELF', height: 68 },
       { name: '下の棚', kind: 'ROOM_TEMP', form: 'SHELF', height: 68 },
@@ -452,7 +467,7 @@ function withSample(state) {
     { name: '絹ごし豆腐', category: 'PROCESSED', at: 'c-upper', expiryType: 'USE_BY', offset: 1, quantity: 2, memo: null },
     { name: '牛乳', category: 'DAIRY', at: 'c-door', expiryType: 'BEST_BEFORE', offset: 2, quantity: 1, memo: null },
     { name: 'キャベツ', category: 'VEGETABLE', at: 'c-veg', expiryType: 'UNKNOWN', registeredOffset: -3, quantity: 1, memo: '半玉' },
-    { name: '卵', category: 'EGG', at: 'c-middle', expiryType: 'BEST_BEFORE', offset: 6, quantity: 8, memo: null },
+    { name: '卵', category: 'EGG', at: 'c-egg', expiryType: 'BEST_BEFORE', offset: 6, quantity: 8, memo: null },
     { name: '冷凍うどん', category: 'FROZEN', at: 'c-freezer', expiryType: 'BEST_BEFORE', registeredOffset: -10, quantity: 4, memo: null },
     { name: 'しょうゆ', category: 'SEASONING', at: 'c-pantry', expiryType: 'BEST_BEFORE', offset: 210, quantity: 1, memo: null },
     { name: 'ヨーグルト', category: 'DAIRY', at: null, expiryType: 'BEST_BEFORE', offset: 9, quantity: 4, memo: null },

@@ -132,9 +132,10 @@ const FridgeView = (function () {
         /* 「ここから新しい扉」の段で区切る。2ドア・3ドアはここで分かれる */
         if (compartment.newDoor) door = null;
         if (!door) {
-          door = { type: 'door', pockets: [], shelves: [] };
+          door = { type: 'door', pockets: [], shelves: [], items: [] };
           out.push(door);
         }
+        door.items.push(compartment);
         if (compartment.form === 'POCKET') door.pockets.push(compartment);
         else door.shelves.push(compartment);
         return;
@@ -151,15 +152,6 @@ const FridgeView = (function () {
     return out;
   }
 
-  /**
-   * 扉はどちら側へ開くか。
-   * 蝶番は取っ手の反対側にあり、開いた扉はそちら側に見える。
-   * 取っ手が上下や無しのときは手がかりが無いので左に寄せる。
-   */
-  function hingeSide(unit) {
-    if (unit.handle === 'LEFT') return 'right';
-    return 'left';
-  }
 
   /* --- 描画 ------------------------------------------------------------ */
 
@@ -175,13 +167,127 @@ const FridgeView = (function () {
       ${opts.editing ? '<p class="notice">段をタップして選ぶと、下に調整が出ます。動かすと図がその場で変わります。</p>' : ''}
       ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}
       <div class="stage"${opts.editing ? ' data-editing="true"' : ''}>
-        ${state.layout.map((unit) => unitMarkup(unit, state, opts)).join('')}
+        ${stageBlocks(state, opts)}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
       </div>
       ${opts.editing ? settingsPanel(state, opts) : ''}`;
   }
 
-  function unitMarkup(unit, state, opts) {
+
+  /** 扉の区画を一つでも持つか。引き出しだけの収納は、扉を開いて描くものが無い */
+  function hasDoorSection(unit) {
+    return sections(unit.compartments).some((section) => section.type === 'door');
+  }
+
+  /**
+   * 収納を舞台に並べる。
+   *
+   * 横に開く扉を持つ収納は、本体を片側の列に、開いた扉を隣の列に描く。
+   * 扉の下は空くので、扉の無い収納（常温の棚など）をそこへ入れる。
+   * 縦に長い冷蔵庫の脇が余らず、一画面に収まる。
+   * 観音開きは扉が両側に開くので、横いっぱいを使う。
+   */
+  function stageBlocks(state, opts) {
+    const blocks = [];
+    const tenants = [];
+    let host = null;
+
+    state.layout.forEach((unit) => {
+      if (opensSideways(unit) && hasDoorSection(unit)) {
+        const block = { kind: 'open', unit, tenants: [] };
+        blocks.push(block);
+        if (!host) host = block;
+      } else if (unit.doorStyle === 'FRENCH' && hasDoorSection(unit)) {
+        blocks.push({ kind: 'wide', unit });
+      } else {
+        tenants.push(unit);
+      }
+    });
+
+    if (host) host.tenants = tenants;
+    else if (tenants.length > 0) blocks.push({ kind: 'grid', units: tenants });
+
+    return blocks.map((block) => {
+      if (block.kind === 'grid') {
+        return `<div class="grid-block">${block.units.map((u) => unitMarkup(u, state, opts)).join('')}</div>`;
+      }
+      if (block.kind === 'wide') {
+        return `<div class="wide-block">${unitMarkup(block.unit, state, opts)}</div>`;
+      }
+      const swings = [];
+      const main = unitMarkup(block.unit, state, opts, swings);
+      return `
+        <div class="open-block" data-side="${block.unit.doorStyle === 'LEFT' ? 'left' : 'right'}">
+          <div class="open-main">${main}</div>
+          <div class="open-side">
+            <div class="swings">${swings.join('')}</div>
+            <div class="open-tenants">${block.tenants.map((u) => unitMarkup(u, state, opts)).join('')}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  /* --- 開いた扉を庫内に揃える ---------------------------------------------- */
+
+  let swingObserver = null;
+
+  /**
+   * 隣の列に描いた扉を、その扉が付く庫内と同じ高さ・同じ位置に揃える。
+   * 庫内の高さは段の大きさで変わり、つまみで引いている最中にも変わるので、
+   * 描き終えてから測り、大きさが変わるたびに測り直す。
+   */
+  function layoutSwings(root) {
+    if (swingObserver) {
+      swingObserver.disconnect();
+      swingObserver = null;
+    }
+    const blocks = [...root.querySelectorAll('.open-block')];
+    if (blocks.length === 0) return;
+
+    const run = () => blocks.forEach(placeSwings);
+    run();
+
+    if (typeof ResizeObserver === 'function') {
+      swingObserver = new ResizeObserver(run);
+      blocks.forEach((block) => {
+        block.querySelectorAll('.door[data-section]').forEach((el) => swingObserver.observe(el));
+      });
+    }
+  }
+
+  function placeSwings(block) {
+    const holder = block.querySelector('.swings');
+    if (!holder) return;
+    const base = holder.getBoundingClientRect().top;
+    let bottom = 0;
+
+    holder.querySelectorAll('.door-swing[data-swing]').forEach((swing) => {
+      const section = block.querySelector(`.door[data-section="${swing.dataset.swing}"]`);
+      if (!section) return;
+
+      /**
+       * 扉と庫内は同じ高さに揃える。どちらか高いほうに合わせる。
+       * ポケットが多いと扉のほうが高くなるので、そのときは庫内を伸ばす。
+       * 同じ処理の中で縮めて伸ばすだけなので、見張りが何度も呼ばれることはない。
+       */
+      swing.style.height = 'auto';
+      section.style.minHeight = '';
+      const natural = swing.offsetHeight;
+      const rect = section.getBoundingClientRect();
+      const height = Math.max(natural, rect.height);
+      if (height > rect.height) section.style.minHeight = `${height}px`;
+
+      const top = section.getBoundingClientRect().top - base;
+      swing.style.top = `${top}px`;
+      swing.style.height = `${height}px`;
+      bottom = Math.max(bottom, top + height);
+    });
+
+    /* 扉の下から、扉の無い収納を並べ始める */
+    holder.style.height = `${Math.ceil(bottom)}px`;
+  }
+
+  function unitMarkup(unit, state, opts, swings) {
     const selected = opts.editing && opts.selection.type === 'unit' && opts.selection.id === unit.id;
     /* つまみが枠に切られないよう、選択中の段を抱える筐体には印を付けておく */
     const holdsSelection = opts.editing && opts.selection.type === 'comp'
@@ -200,10 +306,12 @@ const FridgeView = (function () {
       return handleZones(unit, withGhost);
     };
 
+    const ctx = { zonesFor, swings: swings || [], sectionIndex: 0 };
+
     return `
       <section class="unit${selected ? ' is-selected' : ''}${holdsSelection ? ' has-selection' : ''}" data-unit="${unit.id}"
                data-type="${unit.type}" data-handle="${unit.handle}" data-door="${unit.doorStyle}"
-               ${unit.doorStyle === 'FRENCH' ? 'data-wide="true"' : ''} style="${unitStyle(unit)}">
+               style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
             ? `<button class="unit-pick" type="button" data-select-unit="${unit.id}">
@@ -214,7 +322,7 @@ const FridgeView = (function () {
         <div class="case" style="${caseStyle(unit)}" data-case="${unit.id}">
           ${unit.type === 'FRIDGE' ? '<span class="case-top" aria-hidden="true"></span>' : ''}
           <div class="unit-body">
-            ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts, zonesFor, unit)).join('')}
+            ${sections(unit.compartments).map((section) => sectionMarkup(section, state, opts, unit, ctx)).join('')}
             ${opts.editing ? `<button class="comp-add" type="button" data-add-comp="${unit.id}">＋ 段を追加</button>` : ''}
           </div>
         </div>
@@ -239,65 +347,71 @@ const FridgeView = (function () {
   }
 
   /** 扉は棚を抱えた一枚板、引き出しは前板と取っ手を持つ箱として描く */
-  function sectionMarkup(section, state, opts, zonesFor, unit) {
-    if (section.type === 'door') return doorMarkup(section, state, opts, zonesFor, unit);
-    return packRows(section.items).map((row) => rowMarkup(row, state, opts, true, zonesFor)).join('');
+  function sectionMarkup(section, state, opts, unit, ctx) {
+    if (section.type === 'door') return doorMarkup(section, state, opts, unit, ctx);
+    return packRows(section.items).map((row) => rowMarkup(row, state, opts, true, ctx.zonesFor)).join('');
   }
 
   /**
-   * 扉を開いた形。
-   * 蝶番側に扉の板（ドアポケット）、その隣に庫内の棚を置く。
-   * ドアポケットを持たない冷蔵庫もあるので、無ければ扉の板ごと出さない。
+   * 扉の区画を描く。図では扉を開けた状態で描く。
+   *
+   * 横に開く扉は、庫内（棚）だけをここに描き、開いた扉の板は ctx.swings に積んで
+   * 収納の隣の列に描く。実物のドアポケットは扉の内側に付いているので、
+   * 庫内に並べると開けたときの見た目と結びつかない。
+   * 観音開きは扉が左右に2枚あるので、庫内を挟んで両側に描く。
+   * 扉の無い収納は、ポケットも棚と同じ並びで庫内に描く。
    */
-  function doorMarkup(section, state, opts, zonesFor, unit) {
-    const french = unit.doorStyle === 'FRENCH';
-    /**
-     * 観音開きでは取っ手は扉の板に付く。庫内に描くと棚を横切ってしまう。
-     * 位置は向かい合う内側で決まっているので、つまんで動かす対象にもしない。
-     */
-    const body = `
-      <div class="door"${french ? ' data-french="true"' : ''}>
-        <div class="door-inner">
-          ${packRows(section.shelves).map((row) => rowMarkup(row, state, opts, false, zonesFor)).join('')}
-        </div>
-        ${french ? '' : '<span class="door-handle" aria-hidden="true"></span>'}
-        ${french ? '' : zonesFor()}
-      </div>`;
+  function doorMarkup(section, state, opts, unit, ctx) {
+    const style = unit.doorStyle;
+    const rowsOf = (list) => packRows(list).map((row) => rowMarkup(row, state, opts, false, ctx.zonesFor)).join('');
 
-    if (section.pockets.length === 0) return body;
-
-    const leaf = (pockets, side) => `
-      <div class="door-leaf" data-side="${side}">
-        <span class="leaf-tag" aria-hidden="true">ドア</span>
-        <div class="leaf-inner">
-          ${pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
-        </div>
-        <span class="hinge" aria-hidden="true"></span>
-        ${french ? '<span class="door-handle leaf-handle" aria-hidden="true"></span>' : ''}
-      </div>`;
-
-    /* 棚が一つも無ければ、扉の板だけで横幅いっぱいを使う */
-    if (section.shelves.length === 0) {
-      return `<div class="door-split" data-only-leaf="true">${leaf(section.pockets, 'left')}</div>`;
-    }
-
-    if (french) {
-      /**
-       * 観音開きは扉が左右2枚。ポケットは交互に振り分けて、
-       * 左右どちらの扉にも同じくらい並ぶようにする。
-       */
-      const left = section.pockets.filter((_, index) => index % 2 === 0);
-      const right = section.pockets.filter((_, index) => index % 2 === 1);
+    if (style === 'NONE') {
       return `
-        <div class="door-split" data-french="true">
-          ${leaf(left, 'left')}${body}${leaf(right.length > 0 ? right : [], 'right')}
+        <div class="door" data-open="none">
+          <div class="door-inner">${rowsOf(section.items)}</div>
         </div>`;
     }
 
-    const order = hingeSide(unit) === 'right'
-      ? body + leaf(section.pockets, 'right')
-      : leaf(section.pockets, 'left') + body;
-    return `<div class="door-split" data-hinge="${hingeSide(unit)}">${order}</div>`;
+    const key = `${unit.id}:${ctx.sectionIndex}`;
+    ctx.sectionIndex += 1;
+
+    const body = `
+      <div class="door" data-open="${style.toLowerCase()}" data-section="${key}">
+        <div class="door-inner">
+          ${section.shelves.length > 0 ? rowsOf(section.shelves) : '<p class="door-empty">庫内</p>'}
+        </div>
+      </div>`;
+
+    if (style === 'FRENCH') {
+      /* ポケットは交互に振り分けて、左右どちらの扉にも同じくらい並ぶようにする */
+      const left = section.pockets.filter((_, index) => index % 2 === 0);
+      const right = section.pockets.filter((_, index) => index % 2 === 1);
+      return `
+        <div class="french-row">
+          ${swingMarkup(left, state, opts, 'left', '')}
+          ${body}
+          ${swingMarkup(right, state, opts, 'right', '')}
+        </div>`;
+    }
+
+    ctx.swings.push(swingMarkup(section.pockets, state, opts, style === 'LEFT' ? 'left' : 'right', key));
+    return body;
+  }
+
+  /**
+   * 開いた扉の板。蝶番を軸に手前へ回して、内側（ポケットの付く面）を見せる。
+   * key があるものは収納の隣の列に置かれ、あとで庫内の高さに揃えられる。
+   */
+  function swingMarkup(pockets, state, opts, side, key) {
+    return `
+      <div class="door-swing" data-side="${side}"${key ? ` data-swing="${key}"` : ''}>
+        <div class="swing-panel">
+          <span class="swing-tag" aria-hidden="true">ドア</span>
+          <div class="swing-inner">
+            ${pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
+          </div>
+        </div>
+      </div>`;
   }
 
   function rowMarkup(row, state, opts, asDrawer, zonesFor) {
@@ -410,14 +524,16 @@ const FridgeView = (function () {
         </label>
 
         <div class="field-row">
-          <span>扉の開き方</span>
-          <div class="seg">
+          <span>扉</span>
+          <div class="seg seg-wrap">
             ${Object.entries(DOOR_STYLE_LABELS).map(([key, label]) => `
               <button class="seg-btn" type="button" data-unit-door="${unit.id}" data-door-value="${key}"
                       aria-pressed="${unit.doorStyle === key}">${label}</button>`).join('')}
           </div>
         </div>
+        <p class="size-hint">扉は開けた状態で描きます。「開かない」は棚やラックのように扉の無い収納です。</p>
 
+        ${unit.doorStyle === 'NONE' ? '' : `
         <div class="field-row">
           <span>ドアポケット</span>
           <div class="seg">
@@ -425,7 +541,7 @@ const FridgeView = (function () {
               <button class="seg-btn" type="button" data-unit-pockets="${unit.id}" data-pockets-value="${key}"
                       aria-pressed="${hasPockets === (key === 'on')}">${label}</button>`).join('')}
           </div>
-        </div>
+        </div>`}
 
         <div class="field-row">
           <span>取っ手</span>
@@ -435,8 +551,8 @@ const FridgeView = (function () {
                       aria-pressed="${unit.handle === key}">${label}</button>`).join('')}
           </div>
         </div>
-        <p class="size-hint">図の<b>取っ手をつまんで</b>、置きたい辺へ運んでも変えられます。
-           真ん中で離すと外れます。</p>
+        <p class="size-hint">引き出しの取っ手です。図の<b>取っ手をつまんで</b>、置きたい辺へ運んでも変えられます。
+           真ん中で離すと外れます。扉は開けた状態で描くので、扉の取っ手は出しません。</p>
 
         ${colorField(unit.color, `data-unit-color="${unit.id}"`, unit.type === 'FRIDGE' ? '冷蔵庫の色' : '棚の色')}
         ${unit.handle === 'NONE'
@@ -759,6 +875,7 @@ const FridgeView = (function () {
   /* --- 操作 ------------------------------------------------------------ */
 
   function bind(root, state, opts) {
+    layoutSwings(root);
     if (opts.editing) return bindEditor(root, state, opts);
     root.querySelectorAll('.chip[data-item]').forEach((chipEl) => attachDrag(chipEl, opts));
   }

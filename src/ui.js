@@ -527,9 +527,18 @@
             <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
             <button class="btn btn-ghost" type="button" id="pick-shape">型から選ぶ</button>
           </div>
-          <p class="hint">
-            いまの形：${state.layout.map((u) => `${esc(u.name)}（${u.compartments.length}段）`).join('、')}
-          </p>
+          <div class="unit-doors">
+            ${state.layout.map((u) => `
+              <div class="unit-door-row">
+                <span class="unit-door-name">${esc(u.name)}<em>${u.compartments.length}段</em></span>
+                <div class="seg seg-wrap">
+                  ${Object.entries(DOOR_STYLE_LABELS).map(([key, label]) => `
+                    <button class="seg-btn" type="button" data-set-door="${u.id}" data-door-value="${key}"
+                            aria-pressed="${u.doorStyle === key}">${label}</button>`).join('')}
+                </div>
+              </div>`).join('')}
+          </div>
+          <p class="hint">扉は開けた状態で図に描きます。扉の無い棚やラックは「開かない」にします。</p>
         </section>
 
         <section class="settings-block">
@@ -1704,6 +1713,17 @@
         render();
       });
     }
+
+    /* 収納ごとの扉。冷蔵庫の形を開かずに、ここだけ直せるようにしておく */
+    root.querySelectorAll('[data-set-door]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const unit = state.layout.find((u) => u.id === el.dataset.setDoor);
+        if (!unit) return;
+        unit.doorStyle = el.dataset.doorValue;
+        saveState(state);
+        render();
+      });
+    });
 
     const pickShape = root.querySelector('#pick-shape');
     if (pickShape) pickShape.addEventListener('click', openShapes);
