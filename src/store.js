@@ -437,19 +437,33 @@ const FRIDGE_SHAPES = [
   },
 ];
 
-/** 型から収納を一つ作る。棚は扉も取っ手も持たない */
-function unitFromShape(shape, name) {
-  const isShelf = shape.id === 'pantry';
+/**
+ * 収納を一つ作る。収納はここ以外で組み立てない。
+ * 項目を足したときに作る場所の一つだけ書き忘れると、その収納を描くところで止まる。
+ * 実際に「収納を追加」で扉の開き方が抜け、冷蔵庫の図が描けなくなったことがある。
+ */
+function makeUnit({ name, type, doorStyle, compartments }) {
+  const isShelf = type === 'SHELF';
   return {
     id: newId('unit'),
-    name: name || shape.name,
-    type: isShelf ? 'SHELF' : 'FRIDGE',
+    name,
+    type,
     color: null,
     handle: isShelf ? 'NONE' : 'RIGHT',
     handleColor: null,
+    doorStyle: doorStyle || (isShelf ? 'NONE' : 'RIGHT'),
+    compartments,
+  };
+}
+
+/** 型から収納を一つ作る。棚は扉も取っ手も持たない */
+function unitFromShape(shape, name) {
+  return makeUnit({
+    name: name || shape.name,
+    type: shape.id === 'pantry' ? 'SHELF' : 'FRIDGE',
     doorStyle: shape.doorStyle,
     compartments: shapeCompartments(shape.rows),
-  };
+  });
 }
 
 /* --- 初回のサンプルデータ ------------------------------------------------ */

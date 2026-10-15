@@ -994,10 +994,7 @@
 
     if (on) {
       if (pockets.length > 0) return;
-      unit.compartments.unshift({
-        id: newId('c'), name: 'ドアポケット', kind: 'FRIDGE', form: 'POCKET',
-        width: 100, height: 52, color: null,
-      });
+      unit.compartments.unshift(comp(newId('c'), 'ドアポケット', 'FRIDGE', 'POCKET', 100, 44));
       selection = { type: 'unit', id: unitId };
       commit();
       return;
@@ -1031,16 +1028,8 @@
     if (!unit) return;
     const index = unit.compartments.findIndex((c) => c.id === compartmentId);
     const neighbour = unit.compartments[index];
-    const created = {
-      id: newId('c'),
-      name: '新しい段',
-      kind: neighbour.kind,
-      form: neighbour.form,
-      width: 100,
-      height: neighbour.form === 'POCKET' ? 44 : 68,
-      color: null,
-      newDoor: false,
-    };
+    const created = comp(newId('c'), '新しい段', neighbour.kind, neighbour.form,
+      100, neighbour.form === 'POCKET' ? 44 : 68);
 
     if (where === 'before') {
       /* 扉の一番上の段の上に足すときは、扉の始まりを新しい段へ引き継ぐ */
@@ -1058,33 +1047,18 @@
 
   function addCompartment(unitId) {
     const unit = state.layout.find((u) => u.id === unitId);
-    const created = {
-      id: newId('c'),
-      name: '新しい段',
-      kind: 'FRIDGE',
-      form: 'SHELF',
-      width: 100,
-      height: 68,
-      color: null,
-      newDoor: false,
-    };
+    const created = comp(newId('c'), '新しい段', 'FRIDGE', 'SHELF', 100, 68);
     unit.compartments.push(created);
     selection = { type: 'comp', id: created.id };
     commit();
   }
 
   function addUnit() {
-    const created = {
-      id: newId('unit'),
+    const created = makeUnit({
       name: '新しい収納',
       type: 'SHELF',
-      color: null,
-      handle: 'NONE',
-      handleColor: null,
-      compartments: [
-        { id: newId('c'), name: '棚', kind: 'ROOM_TEMP', form: 'SHELF', width: 100, height: 68, color: null },
-      ],
-    };
+      compartments: [comp(newId('c'), '棚', 'ROOM_TEMP', 'SHELF', 100, 68)],
+    });
     state.layout.push(created);
     selection = { type: 'unit', id: created.id };
     commit();

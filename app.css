@@ -2456,3 +2456,54 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   z-index: 9;
   transition: transform .12s, box-shadow .12s;
 }
+
+/* --- 不具合の知らせ ------------------------------------------------------- */
+
+/* 画面の一番上に重ねる。どの画面で起きても見えるように */
+.crash {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1000;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #1b2a32;
+  color: #eef4f8;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, .55);
+  font-size: 12.5px;
+}
+.crash-head { display: flex; flex-direction: column; gap: 2px; }
+.crash-head b { font-size: 14px; }
+.crash-head span { color: #b9cad4; }
+.crash-text {
+  width: 100%;
+  box-sizing: border-box;
+  height: 110px;
+  resize: vertical;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #0e171c;
+  color: #d7e6ee;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.crash-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.crash-actions button {
+  flex: 1 1 auto;
+  border: 1px solid #3c515c;
+  border-radius: 999px;
+  background: transparent;
+  color: #eef4f8;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.crash-actions button[data-crash-copy] { background: #0d6a83; border-color: #0d6a83; }
