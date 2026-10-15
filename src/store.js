@@ -26,8 +26,6 @@ function defaultLayout() {
       name: '冷蔵庫',
       type: 'FRIDGE',
       color: null,
-      handle: 'RIGHT',
-      handleColor: null,
       doorStyle: 'RIGHT',
       compartments: [
         /* 扉の内側のポケット。卵・小物・ボトルの三段が日本の冷蔵庫によくある形 */
@@ -48,9 +46,6 @@ function defaultLayout() {
       name: '常温の棚',
       type: 'SHELF',
       color: null,
-      /* 棚は扉を持たないので、取っ手も既定では出さない */
-      handle: 'NONE',
-      handleColor: null,
       doorStyle: 'NONE',
       compartments: [
         comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
@@ -77,24 +72,6 @@ function opensSideways(unit) {
 }
 
 const FORM_LABELS = { SHELF: '棚', DRAWER: '引き出し', POCKET: 'ドアポケット' };
-
-/** 取っ手の位置。NONE を選ぶと扉の棒も引き出しの棒も消える */
-const HANDLE_LABELS = { TOP: '上', RIGHT: '右', BOTTOM: '下', LEFT: '左', NONE: 'なし' };
-
-/**
- * 取っ手の色。
- * 本体の色と違って小さく細いので、地と紛れない明暗のはっきりした色だけを置く。
- */
-const HANDLE_COLORS = [
-  { value: null, label: '既定' },
-  { value: '#adbdc8', label: 'シルバー' },
-  { value: '#e9eef1', label: 'ホワイト' },
-  { value: '#8a949b', label: 'サテン' },
-  { value: '#49535a', label: 'ガンメタル' },
-  { value: '#22272b', label: 'ブラック' },
-  { value: '#b9915f', label: 'ブラス' },
-  { value: '#9a6a4a', label: 'ウッド' },
-];
 
 /* 調整できる範囲。ここを外れると図として破綻するので端で止める */
 const WIDTH_MIN = 20;
@@ -208,9 +185,9 @@ function normalize(parsed) {
   state.layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
     if (unit.color === undefined) unit.color = null;
-    /* 取っ手を持たなかった頃の保存データは、見た目が変わらない側へ寄せる */
-    if (!HANDLE_LABELS[unit.handle]) unit.handle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
-    if (unit.handleColor === undefined) unit.handleColor = null;
+    /* 取っ手は描かなくなった。古い保存データに残っていても使わないので消しておく */
+    delete unit.handle;
+    delete unit.handleColor;
     /* 片開きしか無かった頃の保存データは、冷蔵庫なら右開き、棚なら扉なしに寄せる */
     if (!DOOR_STYLE_LABELS[unit.doorStyle]) unit.doorStyle = unit.type === 'FRIDGE' ? 'RIGHT' : 'NONE';
     unit.compartments.forEach((c) => {
@@ -449,8 +426,6 @@ function makeUnit({ name, type, doorStyle, compartments }) {
     name,
     type,
     color: null,
-    handle: isShelf ? 'NONE' : 'RIGHT',
-    handleColor: null,
     doorStyle: doorStyle || (isShelf ? 'NONE' : 'RIGHT'),
     compartments,
   };

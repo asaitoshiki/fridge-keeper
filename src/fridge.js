@@ -57,14 +57,6 @@ const FridgeView = (function () {
         `--panel-2:${shade(unit.color, 0.12)}`,
       );
     }
-    /* 取っ手は一本の金属に見せたいので、選ばれた色から明暗の三段を作る */
-    if (unit.handleColor) {
-      parts.push(
-        `--chrome-hi:${shade(unit.handleColor, 0.42)}`,
-        `--chrome-mid:${unit.handleColor}`,
-        `--chrome-lo:${shade(unit.handleColor, -0.4)}`,
-      );
-    }
     return parts.join(';');
   }
 
@@ -293,24 +285,11 @@ const FridgeView = (function () {
     const holdsSelection = opts.editing && opts.selection.type === 'comp'
       && unit.compartments.some((c) => c.id === opts.selection.id);
 
-    /**
-     * 行き先は、つまんだ扉や引き出しのまわりに出す。
-     * 筐体いっぱいに広げると中身と重なって、どこへ置くのか読めなくなる。
-     * 取っ手が無いときの掴みどころは、最初の一区画にだけ置く。
-     */
-    let ghostPlaced = false;
-    const zonesFor = () => {
-      if (!opts.editing) return '';
-      const withGhost = unit.handle === 'NONE' && !ghostPlaced;
-      if (withGhost) ghostPlaced = true;
-      return handleZones(unit, withGhost);
-    };
-
-    const ctx = { zonesFor, swings: swings || [], sectionIndex: 0 };
+    const ctx = { swings: swings || [], sectionIndex: 0 };
 
     return `
       <section class="unit${selected ? ' is-selected' : ''}${holdsSelection ? ' has-selection' : ''}" data-unit="${unit.id}"
-               data-type="${unit.type}" data-handle="${unit.handle}" data-door="${unit.doorStyle}"
+               data-type="${unit.type}" data-door="${unit.doorStyle}"
                style="${unitStyle(unit)}">
         <header class="unit-head">
           ${opts.editing
@@ -330,26 +309,10 @@ const FridgeView = (function () {
       </section>`;
   }
 
-  /**
-   * 取っ手をつまんで動かすときの行き先。
-   * 動かしている間だけ出す。常に出しておくと図が印だらけになって中身が読めない。
-   * 「なし」を真ん中に置くのは、外す操作もつまんで運ぶ同じ動きで終わらせるため。
-   */
-  function handleZones(unit, withGhost) {
-    const zone = (key) => `<span class="hzone hzone-${key.toLowerCase()}" data-zone="${key}">${HANDLE_LABELS[key]}</span>`;
-    return `
-      <div class="handle-zones" aria-hidden="true">
-        ${['TOP', 'RIGHT', 'BOTTOM', 'LEFT', 'NONE'].map(zone).join('')}
-      </div>
-      ${unit.handle === 'NONE' && withGhost
-        ? '<span class="handle-ghost" data-handle-grip aria-hidden="true">取っ手</span>'
-        : ''}`;
-  }
-
   /** 扉は棚を抱えた一枚板、引き出しは前板と取っ手を持つ箱として描く */
   function sectionMarkup(section, state, opts, unit, ctx) {
     if (section.type === 'door') return doorMarkup(section, state, opts, unit, ctx);
-    return packRows(section.items).map((row) => rowMarkup(row, state, opts, true, ctx.zonesFor)).join('');
+    return packRows(section.items).map((row) => rowMarkup(row, state, opts, true)).join('');
   }
 
   /**
@@ -363,7 +326,7 @@ const FridgeView = (function () {
    */
   function doorMarkup(section, state, opts, unit, ctx) {
     const style = unit.doorStyle;
-    const rowsOf = (list) => packRows(list).map((row) => rowMarkup(row, state, opts, false, ctx.zonesFor)).join('');
+    const rowsOf = (list) => packRows(list).map((row) => rowMarkup(row, state, opts, false)).join('');
 
     if (style === 'NONE') {
       return `
@@ -414,12 +377,12 @@ const FridgeView = (function () {
       </div>`;
   }
 
-  function rowMarkup(row, state, opts, asDrawer, zonesFor) {
+  function rowMarkup(row, state, opts, asDrawer) {
     const cells = row.map((compartment) => {
       const cell = compMarkup(compartment, state, opts);
       return asDrawer
         ? `<div class="drawer-box" style="--w:${compartment.width}">
-             ${cell}<span class="drawer-pull" aria-hidden="true"></span>${zonesFor()}
+             ${cell}
            </div>`
         : cell;
     }).join('');
@@ -543,21 +506,7 @@ const FridgeView = (function () {
           </div>
         </div>`}
 
-        <div class="field-row">
-          <span>取っ手</span>
-          <div class="seg">
-            ${Object.entries(HANDLE_LABELS).map(([key, label]) => `
-              <button class="seg-btn" type="button" data-unit-handle="${unit.id}" data-handle-value="${key}"
-                      aria-pressed="${unit.handle === key}">${label}</button>`).join('')}
-          </div>
-        </div>
-        <p class="size-hint">引き出しの取っ手です。図の<b>取っ手をつまんで</b>、置きたい辺へ運んでも変えられます。
-           真ん中で離すと外れます。扉は開けた状態で描くので、扉の取っ手は出しません。</p>
-
         ${colorField(unit.color, `data-unit-color="${unit.id}"`, unit.type === 'FRIDGE' ? '冷蔵庫の色' : '棚の色')}
-        ${unit.handle === 'NONE'
-          ? ''
-          : colorField(unit.handleColor, `data-unit-handle-color="${unit.id}"`, '取っ手の色', HANDLE_COLORS)}
       </section>`;
   }
 
@@ -835,8 +784,8 @@ const FridgeView = (function () {
       };
 
       el.addEventListener('pointerdown', (event) => {
-        /* つまみ（大きさ・並べ替え・取っ手）の上では、そちらの操作を優先する */
-        if (event.target.closest('.grip, .is-grabbable')) return;
+        /* つまみ（大きさ・並べ替え）の上では、そちらの操作を優先する */
+        if (event.target.closest('.grip')) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
         press = { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, pointerId: event.pointerId, mouse: event.pointerType === 'mouse', timer: null };
         if (!press.mouse) press.timer = setTimeout(() => { press.timer = null; arm(); }, HOLD_MS);
@@ -893,46 +842,6 @@ const FridgeView = (function () {
     });
   }
 
-  /* --- 取っ手をつまんで動かす ---------------------------------------------- */
-
-  /** 真ん中のこの割合までは「なし」。端のどれでもない場所で離したときの行き先 */
-  const HANDLE_CENTER = 0.42;
-
-  /** その区画の中のどこで離したかを、置き場所に読み替える */
-  function zoneAt(rect, x, y) {
-    const dx = (x - (rect.left + rect.width / 2)) / (rect.width / 2);
-    const dy = (y - (rect.top + rect.height / 2)) / (rect.height / 2);
-    if (Math.abs(dx) < HANDLE_CENTER && Math.abs(dy) < HANDLE_CENTER) return 'NONE';
-    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'RIGHT' : 'LEFT';
-    return dy > 0 ? 'BOTTOM' : 'TOP';
-  }
-
-  /**
-   * 取っ手をつまんで、四辺と「なし」へ運べるようにする。
-   *
-   * 編集中はどの収納の取っ手も掴める。収納を選んでからでないと掴めないと、
-   * 取っ手に触っても何も起きず、動かせること自体に気づけない。
-   * 扉の棒も引き出しの棒も同じように掴めるようにしてある。
-   */
-  function bindHandleGrips(root, state, opts) {
-    state.layout.forEach((unit) => {
-      const unitEl = root.querySelector(`.unit[data-unit="${unit.id}"]`);
-      if (!unitEl) return;
-
-      /* 取っ手が無いときは代わりの掴みどころ。あるときは棒そのものを全部握らせる */
-      const grips = unit.handle === 'NONE'
-        ? [...unitEl.querySelectorAll('[data-handle-grip]')]
-        : [...unitEl.querySelectorAll('.door-handle:not(.leaf-handle), .drawer-pull')];
-
-      grips.forEach((grip) => {
-        /* 行き先は、その棒が載っている扉や引き出しの中だけに出す */
-        const region = grip.closest('.door, .drawer-box');
-        const zones = region && region.querySelector('.handle-zones');
-        if (region && zones) attachHandleGrip(grip, unit.id, region, zones, opts);
-      });
-    });
-  }
-
   /** 運び終えた直後の一回だけ、クリックを捨てる */
   function swallowNextClick() {
     const swallow = (event) => {
@@ -942,74 +851,6 @@ const FridgeView = (function () {
     window.addEventListener('click', swallow, { capture: true, once: true });
     /* クリックが来ないまま終わることもあるので、短い時間で必ず外す */
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 350);
-  }
-
-  function attachHandleGrip(grip, unitId, region, zones, opts) {
-    grip.classList.add('is-grabbable');
-
-    let dragging = false;
-    let picked = null;
-    let moved = false;
-    let from = null;
-
-    const paint = (zone) => {
-      zones.querySelectorAll('.hzone').forEach((el) => {
-        el.classList.toggle('is-on', el.dataset.zone === zone);
-      });
-    };
-
-    /**
-     * ここで preventDefault はしない。
-     * 取っ手の当たり判定は見た目より広げてあるので、止めてしまうと
-     * 取っ手の脇をタップしたときに下の段が選べなくなる。
-     * 動かさずに離せば、そのままクリックが下へ通って段が選ばれる。
-     */
-    grip.addEventListener('pointerdown', (event) => {
-      dragging = true;
-      picked = null;
-      moved = false;
-      from = { x: event.clientX, y: event.clientY };
-      grip.setPointerCapture(event.pointerId);
-      paint(null);
-    });
-
-    grip.addEventListener('pointermove', (event) => {
-      if (!dragging) return;
-      /* 指のぶれで動かさない。はっきり運び始めてから行き先を決める */
-      if (!moved) {
-        const dx = event.clientX - from.x;
-        const dy = event.clientY - from.y;
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-        moved = true;
-          region.classList.add('is-placing-handle');
-      }
-      /* 運び始めてからは画面を動かさない */
-      event.preventDefault();
-      picked = zoneAt(region.getBoundingClientRect(), event.clientX, event.clientY);
-      paint(picked);
-    });
-
-    const finish = () => {
-      if (!dragging) return;
-      dragging = false;
-      region.classList.remove('is-placing-handle');
-      /* 運んだあとのクリックは捨てる。置いたついでに下の段まで選ばれては困る */
-      if (moved) swallowNextClick();
-      /* 動かさずに離したときは何も変えない。触っただけで消えるのは乱暴 */
-      if (!picked) return;
-      const zone = picked;
-      picked = null;
-      opts.onLayout((layout) => {
-        layout.find((u) => u.id === unitId).handle = zone;
-      });
-    };
-
-    grip.addEventListener('pointerup', finish);
-    grip.addEventListener('pointercancel', () => {
-      dragging = false;
-      picked = null;
-      region.classList.remove('is-placing-handle');
-    });
   }
 
   /* --- 操作 ------------------------------------------------------------ */
@@ -1064,20 +905,7 @@ const FridgeView = (function () {
         });
       });
     });
-    root.querySelectorAll('[data-unit-handle-color]').forEach((el) => {
-      el.addEventListener('click', () => {
-        opts.onLayout((layout) => {
-          layout.find((u) => u.id === el.dataset.unitHandleColor).handleColor = el.dataset.color || null;
-        });
-      });
-    });
-    on('[data-unit-handle]', 'click', (el) => {
-      opts.onLayout((layout) => {
-        layout.find((u) => u.id === el.dataset.unitHandle).handle = el.dataset.handleValue;
-      });
-    });
 
-    bindHandleGrips(root, state, opts);
     bindMoveGrips(root, state, opts);
     bindCompDrag(root, state, opts);
 
