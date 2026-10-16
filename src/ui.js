@@ -518,10 +518,23 @@
         </section>
 
         <section class="settings-block">
-          <h3>冷蔵庫の形</h3>
+          <h3>冷蔵庫の中の分け方</h3>
+          <div class="seg seg-wrap">
+            ${Object.entries(LAYOUT_MODE_LABELS).map(([key, label]) => `
+              <button class="seg-btn" type="button" data-layout-mode="${key}"
+                      aria-pressed="${state.layoutMode === key}">${label}${key === 'ZONES' ? '（おすすめ）' : ''}</button>`).join('')}
+          </div>
+          ${state.layoutMode === 'ZONES' ? `
           <p class="hint">
-            段の数・名前・大きさ・色・取っ手・ドアポケットの有り無しを変えられます。
+            冷蔵・野菜室・冷凍・常温の4つに分けます。期限の目安が変わるのはこの区分だけなので、
+            ふだんはこれで足ります。登録のときに段を選ぶ手間もかかりません。
+          </p>
+          <p class="hint">「段まで細かく」にすると、棚やドアポケット、扉の開き方まで実物に合わせて描けます。</p>
+          ` : `
+          <p class="hint">
+            段の数・名前・大きさ・色・扉・ドアポケットを変えられます。
             冷蔵庫は買い替えるまで変わらないので、最初に一度だけ整えておけば足ります。
+            「温度帯だけ」に戻しても、この形は控えておくので、あとでそのまま戻せます。
           </p>
           <div class="settings-actions">
             <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
@@ -539,6 +552,7 @@
               </div>`).join('')}
           </div>
           <p class="hint">扉は開けた状態で図に描きます。扉の無い棚やラックは「開かない」にします。</p>
+          `}
         </section>
 
         <section class="settings-block">
@@ -1806,6 +1820,21 @@
       });
     });
 
+    /* 冷蔵庫の中の分け方。食材は同じ温度帯の段へ移すので、切り替えても消えない */
+    root.querySelectorAll('[data-layout-mode]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const mode = el.dataset.layoutMode;
+        if (mode === state.layoutMode) return;
+        if (mode === 'ZONES') useZones(state);
+        else useDetailed(state);
+        editingLayout = false;
+        selection = { type: 'comp', id: firstCompartmentId() };
+        saveState(state);
+        render();
+        toast(mode === 'ZONES' ? '温度帯だけで分けるようにしました' : '段まで細かく分けるようにしました');
+      });
+    });
+
     const editLayout = root.querySelector('#edit-layout');
     if (editLayout) {
       editLayout.addEventListener('click', () => {
@@ -1969,6 +1998,8 @@
       () => {
         state.items.forEach((item) => { item.compartmentId = null; });
         state.layout = [unitFromShape(shape)];
+        state.layoutMode = 'DETAILED';
+        state.detailed = null;
         selection = { type: 'unit', id: state.layout[0].id };
         view = 'fridge';
         fridgeMode = 'figure';

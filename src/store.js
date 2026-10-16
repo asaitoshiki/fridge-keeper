@@ -17,9 +17,9 @@ const LEGACY_KEY = 'fridgekeeper.state.v1';
  * height 高さ(px)
  * color  庫内の色。null なら既定
  *
- * 初期値は日本の家庭用冷蔵庫によくある構成に寄せてある。
+ * 段まで細かく分けるときの初期値。日本の家庭用冷蔵庫によくある構成に寄せてある。
  */
-function defaultLayout() {
+function detailedLayout() {
   return [
     {
       id: 'unit-fridge',
@@ -54,6 +54,93 @@ function defaultLayout() {
       ],
     },
   ];
+}
+
+/**
+ * 温度帯だけで分けた冷蔵庫。これが既定。
+ *
+ * 期限の目安が変わるのは温度帯（冷蔵・野菜室・冷凍・常温）だけで、
+ * 段まで記録しても冷蔵庫の中の物は毎日動くので、すぐ実物とずれる。
+ * 登録のたびに段を選ぶ手間のほうが重いので、既定はここまでにしておく。
+ * 段まで分けたい人は、設定から細かい形に切り替えられる。
+ */
+function zoneLayout() {
+  return [
+    makeUnit({
+      id: 'unit-fridge',
+      name: '冷蔵庫',
+      type: 'FRIDGE',
+      doorStyle: 'NONE',
+      compartments: [
+        comp('z-fridge', '冷蔵室', 'FRIDGE', 'SHELF', 100, 150),
+        comp('z-veg', '野菜室', 'VEGETABLE_DRAWER', 'DRAWER', 100, 96),
+        comp('z-freezer', '冷凍室', 'FREEZER', 'DRAWER', 100, 96),
+      ],
+    }),
+    makeUnit({
+      id: 'unit-pantry',
+      name: '常温の棚',
+      type: 'SHELF',
+      compartments: [comp('z-pantry', '常温', 'ROOM_TEMP', 'SHELF', 100, 96)],
+    }),
+  ];
+}
+
+/** 冷蔵庫の中の分け方。ZONES=温度帯だけ（既定） / DETAILED=段まで細かく */
+const LAYOUT_MODE_LABELS = { ZONES: '温度帯だけ', DETAILED: '段まで細かく' };
+
+/**
+ * その種類の食材を置く段。ドアポケットより棚や引き出しを、小さな段より大きな段を先に選ぶ。
+ * 製氷室のような小さな区画に、冷凍食品がまとめて入ってしまわないようにする。
+ * 分け方を切り替えたときに、食材を同じ温度帯へ移すのに使う。
+ */
+function firstCompartmentOfKind(layout, kind) {
+  const all = allCompartments(layout).filter((c) => c.kind === kind);
+  const pool = all.some((c) => c.form !== 'POCKET') ? all.filter((c) => c.form !== 'POCKET') : all;
+  const main = pool.reduce((best, c) => (!best || c.width * c.height > best.width * best.height ? c : best), null);
+  return main ? main.id : null;
+}
+
+/**
+ * 温度帯だけに切り替える。
+ * 細かい形と、食材がどの段にあったかは控えておくので、戻せばそのまま元に戻る。
+ */
+function useZones(state) {
+  if (state.layoutMode === 'ZONES') return;
+  const zones = zoneLayout();
+  state.detailed = {
+    layout: state.layout,
+    placements: Object.fromEntries(state.items.map((item) => [item.id, item.compartmentId])),
+  };
+  state.items.forEach((item) => {
+    const kind = kindOf(state.layout, item);
+    item.compartmentId = kind ? firstCompartmentOfKind(zones, kind) : null;
+  });
+  state.layout = zones;
+  state.layoutMode = 'ZONES';
+}
+
+/**
+ * 段まで細かく分ける形に切り替える。
+ * 前に細かくしていたなら、その形と段の位置に戻す。温度帯を移した食材は、移った先の温度帯の段に置く。
+ */
+function useDetailed(state) {
+  if (state.layoutMode === 'DETAILED') return;
+  const saved = state.detailed;
+  const layout = saved && Array.isArray(saved.layout) && saved.layout.length > 0 ? saved.layout : detailedLayout();
+  const placements = (saved && saved.placements) || {};
+  state.items.forEach((item) => {
+    const kind = kindOf(state.layout, item);
+    if (!kind) {
+      item.compartmentId = null;
+      return;
+    }
+    const before = findCompartment(layout, placements[item.id]);
+    item.compartmentId = before && before.kind === kind ? before.id : firstCompartmentOfKind(layout, kind);
+  });
+  state.layout = layout;
+  state.layoutMode = 'DETAILED';
+  state.detailed = null;
 }
 
 /**
@@ -128,7 +215,10 @@ function emptyState() {
   return {
     version: 2,
     items: [],
-    layout: defaultLayout(),
+    layout: zoneLayout(),
+    /* 冷蔵庫の中の分け方。段まで分けていたときの形は detailed に控えておく */
+    layoutMode: 'ZONES',
+    detailed: null,
     /* 食べた・捨てたの履歴。食材を消したあとも残るので別に持つ */
     logs: [],
     /* ストリークの起点。一度も捨てていない間はここから数える */
@@ -187,7 +277,9 @@ function saveState(state) {
 function normalize(parsed) {
   const state = { ...emptyState(), ...parsed };
   if (!Array.isArray(state.layout) || state.layout.length === 0) {
-    state.layout = defaultLayout();
+    state.layout = zoneLayout();
+    state.layoutMode = 'ZONES';
+    state.detailed = null;
     return state;
   }
   if (!Array.isArray(state.logs)) state.logs = [];
@@ -204,7 +296,24 @@ function normalize(parsed) {
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
-  state.layout.forEach((unit) => {
+  normalizeLayout(state.layout);
+  if (!state.detailed || !Array.isArray(state.detailed.layout)) state.detailed = null;
+  if (state.detailed) normalizeLayout(state.detailed.layout);
+
+  /**
+   * 分け方を持たなかった頃の保存データは段まで細かく分けてある。
+   * 既定を温度帯だけに変えたので、そちらへ移す。細かい形は控えておくので、設定から戻せる。
+   */
+  if (!LAYOUT_MODE_LABELS[parsed.layoutMode]) {
+    state.layoutMode = 'DETAILED';
+    useZones(state);
+  }
+  return state;
+}
+
+/** 収納と段に、古い保存データに無い項目を補う */
+function normalizeLayout(layout) {
+  layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
     if (unit.color === undefined) unit.color = null;
     if (typeof unit.doorWidth !== 'number') unit.doorWidth = DOOR_WIDTH_DEFAULT;
@@ -228,7 +337,6 @@ function normalize(parsed) {
       delete c.size;
     });
   });
-  return state;
 }
 
 function clampWidth(value) {
@@ -446,10 +554,10 @@ const FRIDGE_SHAPES = [
  * 項目を足したときに作る場所の一つだけ書き忘れると、その収納を描くところで止まる。
  * 実際に「収納を追加」で扉の開き方が抜け、冷蔵庫の図が描けなくなったことがある。
  */
-function makeUnit({ name, type, doorStyle, compartments }) {
+function makeUnit({ id, name, type, doorStyle, compartments }) {
   const isShelf = type === 'SHELF';
   return {
-    id: newId('unit'),
+    id: id || newId('unit'),
     name,
     type,
     color: null,
@@ -477,6 +585,12 @@ function unitFromShape(shape, name) {
  * 期限は「今日」からの相対で作るので、いつ開いても同じ見え方になる。
  */
 function withSample(state) {
+  /* サンプルは細かい形の段で書いてある。温度帯だけのときは、同じ温度帯の段へ置く */
+  const placeSample = (layout, at) => {
+    if (findCompartment(layout, at)) return at;
+    const original = findCompartment(detailedLayout(), at);
+    return original ? firstCompartmentOfKind(layout, original.kind) : null;
+  };
   const today = todayIso();
   const sample = [
     { name: '豚こま切れ肉', category: 'MEAT_FISH', at: 'c-chilled', expiryType: 'USE_BY', offset: 0, quantity: 1, memo: '半額だったもの' },
@@ -497,7 +611,7 @@ function withSample(state) {
     notifyDaysBefore: null,
     notifyTime: null,
     category: s.category,
-    compartmentId: s.at,
+    compartmentId: s.at ? placeSample(state.layout, s.at) : null,
     expiryType: s.expiryType,
     expiryDate: s.offset === undefined ? null : addDays(today, s.offset),
     quantity: s.quantity,

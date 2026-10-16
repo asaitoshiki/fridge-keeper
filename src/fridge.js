@@ -158,7 +158,7 @@ const FridgeView = (function () {
     return `
       ${opts.editing ? '<p class="notice">段をタップすると、下に調整が出ます。段を<b>長押し</b>すると、そのまま運んで並べ替えられます。</p>' : ''}
       ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}
-      <div class="stage"${opts.editing ? ' data-editing="true"' : ''}>
+      <div class="stage" data-layout="${state.layoutMode === 'ZONES' ? 'zones' : 'detailed'}"${opts.editing ? ' data-editing="true"' : ''}>
         ${stageBlocks(state, opts)}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
       </div>

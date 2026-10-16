@@ -2391,3 +2391,6 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-size: 11px;
   border-radius: 8px;
 }
+
+/* 温度帯だけのときは区画が少ないので、冷蔵庫を横いっぱいに描いて食材を横に並べる */
+.stage[data-layout="zones"] .grid-block { grid-template-columns: minmax(0, 1fr); }
