@@ -1063,19 +1063,38 @@
     }, '外す');
   }
 
-  /** 扉の内側にポケットを一段足す。扉の一番上に入れる */
-  function addPocket(unitId, firstId) {
+  /**
+   * 扉の内側にポケットを一段足す。
+   * where が 'end' なら、その扉のポケットの一番下に足す。省くと扉の一番上に入れる。
+   * side は観音開きのとき、どちらの扉に付けるか。
+   */
+  function addPocket(unitId, firstId, where, side) {
     const unit = state.layout.find((u) => u.id === unitId);
     if (!unit) return;
-    let index = unit.compartments.findIndex((c) => c.id === firstId);
-    if (index < 0) index = 0;
-    const first = unit.compartments[index];
     const created = comp(newId('c'), 'ポケット', 'FRIDGE', 'POCKET', 100, 44);
-    if (first && first.newDoor) {
-      created.newDoor = true;
-      first.newDoor = false;
+    /* 観音開きでは、押した側の扉に付ける */
+    created.side = side || null;
+    const section = FridgeView.doorSectionOf(unit, firstId);
+    const lastPocket = section && section.pockets[section.pockets.length - 1];
+
+    if (where === 'end' && lastPocket) {
+      const at = unit.compartments.findIndex((c) => c.id === lastPocket.id);
+      unit.compartments.splice(at + 1, 0, created);
+    } else {
+      let index = unit.compartments.findIndex((c) => c.id === (section ? section.items[0].id : firstId));
+      if (index < 0) index = 0;
+      const first = unit.compartments[index];
+      /* 扉の始まりの印と、外した・高さの印は先頭の段が持つので、新しい先頭へ引き継ぐ */
+      if (first) {
+        created.newDoor = first.newDoor;
+        created.doorHeight = first.doorHeight;
+        created.noDoor = first.noDoor;
+        first.newDoor = false;
+        first.doorHeight = null;
+        first.noDoor = false;
+      }
+      unit.compartments.splice(index, 0, created);
     }
-    unit.compartments.splice(index, 0, created);
     selection = { type: 'comp', id: created.id };
     commit();
   }
@@ -1092,6 +1111,18 @@
     const neighbour = unit.compartments[index];
     const created = comp(newId('c'), '新しい段', neighbour.kind, neighbour.form,
       100, neighbour.form === 'POCKET' ? 44 : 68);
+
+    /**
+     * 観音開きのポケットは左右交互に振り分けて描くので、間に足すと後ろのポケットが反対の扉へずれる。
+     * 足す前に今の左右を書き留め、新しい段は隣と同じ扉に付ける。
+     */
+    if (neighbour.form === 'POCKET' && unit.doorStyle === 'FRENCH') {
+      const section = FridgeView.doorSectionOf(unit, neighbour.id);
+      if (section) {
+        section.pockets.forEach((c, i) => { c.side = c.side || (i % 2 === 0 ? 'left' : 'right'); });
+      }
+      created.side = neighbour.side;
+    }
 
     if (where === 'before') {
       /* 扉の一番上の段の上に足すときは、扉の始まりを新しい段へ引き継ぐ */

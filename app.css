@@ -2383,3 +2383,11 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 }
 .door-swing[data-side="right"] .door-del { right: -10px; }
 .door-swing[data-side="left"] .door-del { left: -10px; }
+
+/* ドアの中の「段を追加」。ポケットと同じ幅で、扉の板と一緒に傾く */
+.pocket-add {
+  min-height: 30px;
+  padding: 6px 4px;
+  font-size: 11px;
+  border-radius: 8px;
+}

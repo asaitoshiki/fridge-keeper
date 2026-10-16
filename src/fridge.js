@@ -362,9 +362,13 @@ const FridgeView = (function () {
       </div>`;
 
     if (style === 'FRENCH') {
-      /* ポケットは交互に振り分けて、左右どちらの扉にも同じくらい並ぶようにする */
-      const left = section.pockets.filter((_, index) => index % 2 === 0);
-      const right = section.pockets.filter((_, index) => index % 2 === 1);
+      /**
+       * ポケットは交互に振り分けて、左右どちらの扉にも同じくらい並ぶようにする。
+       * 扉の中の「段を追加」で足したポケットは、足した側の扉に付ける。
+       */
+      const sideOf = (c, index) => c.side || (index % 2 === 0 ? 'left' : 'right');
+      const left = section.pockets.filter((c, index) => sideOf(c, index) === 'left');
+      const right = section.pockets.filter((c, index) => sideOf(c, index) === 'right');
       return `
         <div class="french-row">
           ${swingMarkup(left, state, opts, 'left', '', door)}
@@ -418,6 +422,7 @@ const FridgeView = (function () {
           <span class="swing-tag" aria-hidden="true">ドア${opts.editing && !selected ? '<em>タップで調整</em>' : ''}</span>
           <div class="swing-inner">
             ${pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
+            ${opts.editing ? `<button class="comp-add pocket-add" type="button" data-add-pocket="${sel}|${key ? '' : side}">＋ 段を追加</button>` : ''}
           </div>
           ${tools}
         </div>
@@ -1064,7 +1069,7 @@ const FridgeView = (function () {
     /* 扉の板をタップすると扉を選ぶ。中のポケットやつまみのタップはそちらに任せる */
     root.querySelectorAll('[data-select-door]').forEach((el) => {
       el.addEventListener('click', (event) => {
-        if (event.target.closest('.comp, .grip, .door-del')) return;
+        if (event.target.closest('.comp, .grip, .door-del, .pocket-add')) return;
         opts.onSelect('door', el.dataset.selectDoor);
       });
     });
@@ -1087,6 +1092,14 @@ const FridgeView = (function () {
     on('[data-door-add-pocket]', 'click', (el) => {
       const [unitId, firstId] = el.dataset.doorAddPocket.split('|');
       opts.onAddPocket(unitId, firstId);
+    });
+    /* ドアの中の「段を追加」は、そのドアのポケットの一番下に足す */
+    root.querySelectorAll('[data-add-pocket]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const [unitId, firstId, side] = el.dataset.addPocket.split('|');
+        opts.onAddPocket(unitId, firstId, 'end', side || null);
+      });
     });
     bindDoorGrips(root, state, opts);
 

@@ -61,9 +61,10 @@ function defaultLayout() {
  * doorHeight は扉の始まりの段だけが使う、開いた扉の高さ（null なら庫内に合わせる）。
  * noDoor も扉の始まりの段だけが使う。true ならその区画は扉を外してある。
  * 2ドアの下の扉だけ外す、のように扉は区画ごとに外せる。
+ * side は観音開きのポケットがどちらの扉に付くか（'left' | 'right'）。null なら左右交互に振り分ける。
  */
 function comp(id, name, kind, form, width, height, newDoor) {
-  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null, noDoor: false };
+  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null, noDoor: false, side: null };
 }
 
 /**
@@ -222,6 +223,7 @@ function normalize(parsed) {
       if (c.newDoor === undefined) c.newDoor = false;
       if (c.doorHeight === undefined) c.doorHeight = null;
       if (c.noDoor === undefined) c.noDoor = false;
+      if (c.side !== 'left' && c.side !== 'right') c.side = null;
       delete c.span;
       delete c.size;
     });
