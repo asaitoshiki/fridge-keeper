@@ -27,6 +27,7 @@ function defaultLayout() {
       type: 'FRIDGE',
       color: null,
       doorStyle: 'RIGHT',
+      doorWidth: DOOR_WIDTH_DEFAULT,
       compartments: [
         /* 扉の内側のポケット。卵・小物・ボトルの三段が日本の冷蔵庫によくある形 */
         comp('c-egg', '卵ケース', 'FRIDGE', 'POCKET', 100, 44),
@@ -47,6 +48,7 @@ function defaultLayout() {
       type: 'SHELF',
       color: null,
       doorStyle: 'NONE',
+      doorWidth: DOOR_WIDTH_DEFAULT,
       compartments: [
         comp('c-pantry', '棚', 'ROOM_TEMP', 'SHELF', 100, 72),
       ],
@@ -54,8 +56,25 @@ function defaultLayout() {
   ];
 }
 
+/**
+ * 段を一つ作る。段はここ以外で組み立てない。
+ * doorHeight は扉の始まりの段だけが使う、開いた扉の高さ（null なら庫内に合わせる）。
+ */
 function comp(id, name, kind, form, width, height, newDoor) {
-  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor) };
+  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null };
+}
+
+/**
+ * 開いた扉の幅。収納の隣の列に対する割合（%）。
+ * 狭すぎるとポケットの名前が読めず、広すぎると扉の下に棚を置く場所が無くなる。
+ */
+const DOOR_WIDTH_DEFAULT = 78;
+const DOOR_WIDTH_MIN = 40;
+const DOOR_WIDTH_MAX = 100;
+const DOOR_HEIGHT_MAX = 420;
+
+function clampDoorWidth(value) {
+  return Math.min(DOOR_WIDTH_MAX, Math.max(DOOR_WIDTH_MIN, Math.round(value)));
 }
 
 /**
@@ -185,6 +204,8 @@ function normalize(parsed) {
   state.layout.forEach((unit) => {
     if (!unit.type) unit.type = 'FRIDGE';
     if (unit.color === undefined) unit.color = null;
+    if (typeof unit.doorWidth !== 'number') unit.doorWidth = DOOR_WIDTH_DEFAULT;
+    unit.doorWidth = clampDoorWidth(unit.doorWidth);
     /* 取っ手は描かなくなった。古い保存データに残っていても使わないので消しておく */
     delete unit.handle;
     delete unit.handleColor;
@@ -197,6 +218,7 @@ function normalize(parsed) {
       if (c.color === undefined) c.color = null;
       /* 扉の区切りを持たなかった頃の保存データは、扉が一枚だった頃の見え方を保つ */
       if (c.newDoor === undefined) c.newDoor = false;
+      if (c.doorHeight === undefined) c.doorHeight = null;
       delete c.span;
       delete c.size;
     });
@@ -427,6 +449,7 @@ function makeUnit({ name, type, doorStyle, compartments }) {
     type,
     color: null,
     doorStyle: doorStyle || (isShelf ? 'NONE' : 'RIGHT'),
+    doorWidth: DOOR_WIDTH_DEFAULT,
     compartments,
   };
 }

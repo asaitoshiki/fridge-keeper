@@ -47,7 +47,7 @@ const FridgeView = (function () {
   }
 
   function unitStyle(unit) {
-    const parts = [];
+    const parts = [`--door-w:${unit.doorWidth}`];
     if (unit.color) {
       parts.push(
         `--metal-1:${shade(unit.color, 0.34)}`,
@@ -209,7 +209,8 @@ const FridgeView = (function () {
       const swings = [];
       const main = unitMarkup(block.unit, state, opts, swings);
       return `
-        <div class="open-block" data-side="${block.unit.doorStyle === 'LEFT' ? 'left' : 'right'}">
+        <div class="open-block" data-side="${block.unit.doorStyle === 'LEFT' ? 'left' : 'right'}"
+             data-door-width-for="${block.unit.id}" style="--door-w:${block.unit.doorWidth}">
           <div class="open-main">${main}</div>
           <div class="open-side">
             <div class="swings">${swings.join('')}</div>
@@ -338,8 +339,18 @@ const FridgeView = (function () {
     const key = `${unit.id}:${ctx.sectionIndex}`;
     ctx.sectionIndex += 1;
 
+    /**
+     * 扉の高さは、扉の始まりの段（区画の先頭）が持つ。
+     * 扉と庫内は同じ高さに揃えるので、扉を伸ばせば庫内も伸びる。実物と同じ。
+     */
+    const first = section.items[0];
+    const door = { unitId: unit.id, firstId: first.id, key };
+    /* 並べ替えで区画の先頭が入れ替わっても高さを失わないよう、区画の中の最大を使う */
+    const doorHeight = sectionDoorHeight(section);
+    const heightVar = doorHeight ? ` style="--door-h:${doorHeight}px"` : '';
+
     const body = `
-      <div class="door" data-open="${style.toLowerCase()}" data-section="${key}">
+      <div class="door" data-open="${style.toLowerCase()}" data-section="${key}" data-door-first="${first.id}"${heightVar}>
         <div class="door-inner">
           ${section.shelves.length > 0 ? rowsOf(section.shelves) : '<p class="door-empty">庫内</p>'}
         </div>
@@ -351,28 +362,59 @@ const FridgeView = (function () {
       const right = section.pockets.filter((_, index) => index % 2 === 1);
       return `
         <div class="french-row">
-          ${swingMarkup(left, state, opts, 'left', '')}
+          ${swingMarkup(left, state, opts, 'left', '', door)}
           ${body}
-          ${swingMarkup(right, state, opts, 'right', '')}
+          ${swingMarkup(right, state, opts, 'right', '', door)}
         </div>`;
     }
 
-    ctx.swings.push(swingMarkup(section.pockets, state, opts, style === 'LEFT' ? 'left' : 'right', key));
+    ctx.swings.push(swingMarkup(section.pockets, state, opts, style === 'LEFT' ? 'left' : 'right', key, door));
     return body;
+  }
+
+  function sectionDoorHeight(section) {
+    const value = Math.max(0, ...section.items.map((c) => c.doorHeight || 0));
+    return value > 0 ? value : null;
+  }
+
+  /** firstId の段を含む扉の区画 */
+  function doorSectionOf(unit, firstId) {
+    return sections(unit.compartments)
+      .find((section) => section.type === 'door' && section.items.some((c) => c.id === firstId)) || null;
+  }
+
+  /** 扉を選んだときの印。収納の id と、扉の始まりの段の id の組 */
+  function doorSelectionId(door) {
+    return `${door.unitId}|${door.firstId}`;
   }
 
   /**
    * 開いた扉の板。蝶番を軸に手前へ回して、内側（ポケットの付く面）を見せる。
    * key があるものは収納の隣の列に置かれ、あとで庫内の高さに揃えられる。
    */
-  function swingMarkup(pockets, state, opts, side, key) {
+  function swingMarkup(pockets, state, opts, side, key, door) {
+    const sel = doorSelectionId(door);
+    const selected = opts.editing && opts.selection.type === 'door' && opts.selection.id === sel;
+    /**
+     * 選んだ扉には、段と同じ右端と下端のつまみと、外す印を出す。
+     * 扉は回して描いているので、つまみも扉と一緒に傾く。
+     */
+    const tools = selected ? `
+      <span class="grip grip-door-w" data-door-grip="w" role="separator"
+            aria-label="扉の幅を変える" aria-orientation="vertical"></span>
+      <span class="grip grip-door-h" data-door-grip="h" role="separator"
+            aria-label="扉の高さを変える" aria-orientation="horizontal"></span>
+      <button class="door-del" type="button" data-door-del="${sel}" aria-label="扉を外す">×</button>` : '';
+
     return `
-      <div class="door-swing" data-side="${side}"${key ? ` data-swing="${key}"` : ''}>
-        <div class="swing-panel">
-          <span class="swing-tag" aria-hidden="true">ドア</span>
+      <div class="door-swing${selected ? ' is-selected' : ''}" data-side="${side}"${key ? ` data-swing="${key}"` : ''}
+           data-door-unit="${door.unitId}" data-door-first="${door.firstId}">
+        <div class="swing-panel"${opts.editing ? ` data-select-door="${sel}"` : ''}>
+          <span class="swing-tag" aria-hidden="true">ドア${opts.editing && !selected ? '<em>タップで調整</em>' : ''}</span>
           <div class="swing-inner">
             ${pockets.map((compartment) => compMarkup(compartment, state, opts)).join('')}
           </div>
+          ${tools}
         </div>
       </div>`;
   }
@@ -452,6 +494,12 @@ const FridgeView = (function () {
   /* --- 調整パネル ------------------------------------------------------- */
 
   function settingsPanel(state, opts) {
+    if (opts.selection.type === 'door') {
+      const [unitId, firstId] = opts.selection.id.split('|');
+      const unit = state.layout.find((u) => u.id === unitId);
+      const section = unit ? doorSectionOf(unit, firstId) : null;
+      if (unit && section) return doorSettings(unit, section, firstId);
+    }
     if (opts.selection.type === 'unit') {
       const unit = state.layout.find((u) => u.id === opts.selection.id);
       if (unit) return unitSettings(unit);
@@ -460,6 +508,51 @@ const FridgeView = (function () {
     if (compartment) return compSettings(state, compartment);
 
     return '<section class="settings settings-empty">段か収納をタップすると、ここで調整できます。</section>';
+  }
+
+
+  /**
+   * 選んだ扉の調整。
+   * 大きさは図のつまみで変えるのが早いが、数値と元に戻す道もここに置く。
+   */
+  function doorSettings(unit, section, firstId) {
+    const height = sectionDoorHeight(section);
+    const sel = `${unit.id}|${firstId}`;
+    return `
+      <section class="settings">
+        <header class="settings-head">
+          <span>${esc(unit.name)}のドア</span>
+          <button class="mini danger" type="button" data-door-del="${sel}">外す</button>
+        </header>
+
+        <div class="field-row">
+          <span>開き方</span>
+          <div class="seg seg-wrap">
+            ${Object.entries(DOOR_STYLE_LABELS).filter(([key]) => key !== 'NONE').map(([key, label]) => `
+              <button class="seg-btn" type="button" data-unit-door="${unit.id}" data-door-value="${key}"
+                      aria-pressed="${unit.doorStyle === key}">${label}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="field-row">
+          <span>大きさ</span>
+          <p class="size-hint">図のドアの<b>外側の端</b>と<b>下端</b>のつまみを引いて変えられます。
+             いまは 幅 <b>${unit.doorWidth}%</b> × 高さ <b>${height ? height : '庫内に合わせる'}</b>。
+             ドアと庫内は同じ高さにそろうので、ドアを伸ばすと庫内も伸びます。</p>
+        </div>
+        ${height || unit.doorWidth !== DOOR_WIDTH_DEFAULT ? `
+          <div class="order-buttons">
+            <button class="mini" type="button" data-door-reset="${sel}">大きさを元に戻す</button>
+          </div>` : ''}
+
+        <div class="field-row">
+          <span>ポケット</span>
+          <p class="size-hint">${section.pockets.length}段。ポケットは段と同じように、タップで名前や高さを変えられます。</p>
+        </div>
+        <div class="order-buttons">
+          <button class="mini" type="button" data-door-add-pocket="${sel}">＋ ポケットを足す</button>
+        </div>
+      </section>`;
   }
 
   function unitSettings(unit) {
@@ -842,6 +935,94 @@ const FridgeView = (function () {
     });
   }
 
+
+  /* --- 扉の大きさをつまんで変える ------------------------------------------- */
+
+  /**
+   * 選んだ扉の外側の端で幅を、下端で高さを変える。
+   *
+   * 幅は収納ごとの値で、同じ冷蔵庫の扉はそろって変わる（実物も同じ幅）。
+   * 高さは扉と庫内をそろえたまま伸び縮みする。庫内の高さを測り直す見張りが
+   * 扉の位置を追いかけるので、引いている間も扉は庫内からずれない。
+   * 動かしている間は図を描き直さず、離したときに一度だけ保存する。
+   */
+  function bindDoorGrips(root, state, opts) {
+    root.querySelectorAll('[data-door-grip]').forEach((grip) => {
+      const swing = grip.closest('.door-swing');
+      if (!swing) return;
+      const unitId = swing.dataset.doorUnit;
+      const firstId = swing.dataset.doorFirst;
+      const axis = grip.dataset.doorGrip;
+      const sign = swing.dataset.side === 'left' ? -1 : 1;
+      let drag = null;
+
+      const widthTargets = () => [
+        root.querySelector(`[data-door-width-for="${unitId}"]`),
+        root.querySelector(`.unit[data-unit="${unitId}"]`),
+      ].filter(Boolean);
+      const sectionEl = () => root.querySelector(`.door[data-door-first="${firstId}"]`);
+
+      grip.addEventListener('pointerdown', (event) => {
+        const unit = state.layout.find((u) => u.id === unitId);
+        if (!unit) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const stage = root.querySelector('.stage');
+        const scale = Number(getComputedStyle(stage).getPropertyValue('--scale')) || 1;
+        const section = sectionEl();
+        drag = {
+          x: event.clientX,
+          y: event.clientY,
+          width: unit.doorWidth,
+          /* 1% あたりの画面上の幅。扉の今の幅から割り出すので、隣の列でも観音開きでも同じ式で済む */
+          perPercent: swing.getBoundingClientRect().width / unit.doorWidth,
+          height: section ? section.getBoundingClientRect().height / scale : 0,
+          scale,
+          value: null,
+        };
+        grip.setPointerCapture(event.pointerId);
+        grip.classList.add('is-held');
+      });
+
+      grip.addEventListener('pointermove', (event) => {
+        if (!drag) return;
+        event.preventDefault();
+        if (axis === 'w') {
+          const next = clampDoorWidth(drag.width + (sign * (event.clientX - drag.x)) / drag.perPercent);
+          drag.value = next;
+          widthTargets().forEach((el) => el.style.setProperty('--door-w', next));
+        } else {
+          const next = Math.min(DOOR_HEIGHT_MAX, Math.max(HEIGHT_MIN, Math.round(drag.height + (event.clientY - drag.y) / drag.scale)));
+          drag.value = next;
+          const section = sectionEl();
+          if (section) section.style.setProperty('--door-h', `${next}px`);
+        }
+      });
+
+      const release = () => {
+        if (!drag) return;
+        const value = drag.value;
+        drag = null;
+        grip.classList.remove('is-held');
+        if (value === null) { opts.onRedraw(); return; }
+        opts.onLayout((layout) => {
+          const unit = layout.find((u) => u.id === unitId);
+          if (axis === 'w') {
+            unit.doorWidth = value;
+            return;
+          }
+          /* 高さは区画の先頭の段に一つだけ持たせ、ほかの段の古い値は消す */
+          const section = doorSectionOf(unit, firstId);
+          if (!section) return;
+          section.items.forEach((c) => { c.doorHeight = null; });
+          section.items[0].doorHeight = value;
+        });
+      };
+      grip.addEventListener('pointerup', release);
+      grip.addEventListener('pointercancel', release);
+    });
+  }
+
   /** 運び終えた直後の一回だけ、クリックを捨てる */
   function swallowNextClick() {
     const swallow = (event) => {
@@ -868,6 +1049,34 @@ const FridgeView = (function () {
 
     on('[data-select]', 'click', (el) => opts.onSelect('comp', el.dataset.select));
     on('[data-select-unit]', 'click', (el) => opts.onSelect('unit', el.dataset.selectUnit));
+
+    /* 扉の板をタップすると扉を選ぶ。中のポケットやつまみのタップはそちらに任せる */
+    root.querySelectorAll('[data-select-door]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        if (event.target.closest('.comp, .grip, .door-del')) return;
+        opts.onSelect('door', el.dataset.selectDoor);
+      });
+    });
+    root.querySelectorAll('[data-door-del]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
+        opts.onDeleteDoor(el.dataset.doorDel.split('|')[0]);
+      });
+    });
+    on('[data-door-reset]', 'click', (el) => {
+      const [unitId, firstId] = el.dataset.doorReset.split('|');
+      opts.onLayout((layout) => {
+        const unit = layout.find((u) => u.id === unitId);
+        unit.doorWidth = DOOR_WIDTH_DEFAULT;
+        const section = doorSectionOf(unit, firstId);
+        if (section) section.items.forEach((c) => { c.doorHeight = null; });
+      });
+    });
+    on('[data-door-add-pocket]', 'click', (el) => {
+      const [unitId, firstId] = el.dataset.doorAddPocket.split('|');
+      opts.onAddPocket(unitId, firstId);
+    });
+    bindDoorGrips(root, state, opts);
 
     /* 名前は打つたびに描き直すと入力欄からフォーカスが外れるので、保存だけして描き直さない */
     on('[data-comp-name]', 'change', (el) => {

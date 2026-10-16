@@ -959,6 +959,8 @@
         onDeleteCompartment: deleteCompartment,
         onDeleteUnit: deleteUnit,
         onTogglePockets: togglePockets,
+        onDeleteDoor: deleteDoor,
+        onAddPocket: addPocket,
       });
     }
   }
@@ -1016,6 +1018,55 @@
       },
       '無しにする',
     );
+  }
+
+  /**
+   * 開いた扉そのものを外す。扉の内側のポケットも一緒に消える。
+   * 扉は収納ごとの「開き方」なので、外すと収納が「開かない」になる。設定からいつでも戻せる。
+   */
+  function deleteDoor(unitId) {
+    const unit = state.layout.find((u) => u.id === unitId);
+    if (!unit) return;
+    const pockets = unit.compartments.filter((c) => c.form === 'POCKET');
+    const ids = pockets.map((c) => c.id);
+    const inside = state.items.filter((i) => ids.includes(i.compartmentId)).length;
+    const lines = [];
+    if (pockets.length > 0) lines.push(`扉のポケット${pockets.length}段も消えます。`);
+    if (inside > 0) lines.push(`中の${inside}件は「買ってきたもの」に戻ります。`);
+    lines.push('あとで「開き方」を選べば扉を付け直せます。');
+
+    askConfirm(`${unit.name}の扉を外しますか`, lines.join(''), () => {
+      releaseItemsIn(ids);
+      /* 扉の始まりの印を持つポケットが消えるなら、次の段へ引き継ぐ */
+      unit.compartments.forEach((c, index) => {
+        if (c.form === 'POCKET' && c.newDoor) {
+          const next = unit.compartments.slice(index + 1).find((n) => n.form !== 'POCKET');
+          if (next && next.form !== 'DRAWER') next.newDoor = true;
+        }
+      });
+      unit.compartments = unit.compartments.filter((c) => c.form !== 'POCKET');
+      unit.compartments.forEach((c) => { c.doorHeight = null; });
+      unit.doorStyle = 'NONE';
+      selection = { type: 'unit', id: unitId };
+      commit();
+    }, '外す');
+  }
+
+  /** 扉の内側にポケットを一段足す。扉の一番上に入れる */
+  function addPocket(unitId, firstId) {
+    const unit = state.layout.find((u) => u.id === unitId);
+    if (!unit) return;
+    let index = unit.compartments.findIndex((c) => c.id === firstId);
+    if (index < 0) index = 0;
+    const first = unit.compartments[index];
+    const created = comp(newId('c'), 'ポケット', 'FRIDGE', 'POCKET', 100, 44);
+    if (first && first.newDoor) {
+      created.newDoor = true;
+      first.newDoor = false;
+    }
+    unit.compartments.splice(index, 0, created);
+    selection = { type: 'comp', id: created.id };
+    commit();
   }
 
   /**
