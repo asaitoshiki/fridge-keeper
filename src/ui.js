@@ -1021,32 +1021,43 @@
   }
 
   /**
-   * 開いた扉そのものを外す。扉の内側のポケットも一緒に消える。
-   * 扉は収納ごとの「開き方」なので、外すと収納が「開かない」になる。設定からいつでも戻せる。
+   * 開いた扉を一枚外す。その扉の内側のポケットも一緒に消える。
+   * 2ドア・3ドアでは選んだ扉だけを外し、ほかの扉は残す。
+   * 最後の扉を外したときだけ、収納を「開かない」にする。設定からいつでも戻せる。
    */
-  function deleteDoor(unitId) {
+  function deleteDoor(unitId, firstId) {
     const unit = state.layout.find((u) => u.id === unitId);
     if (!unit) return;
-    const pockets = unit.compartments.filter((c) => c.form === 'POCKET');
+    const section = FridgeView.doorSectionOf(unit, firstId);
+    if (!section) return;
+    const pockets = section.pockets;
     const ids = pockets.map((c) => c.id);
     const inside = state.items.filter((i) => ids.includes(i.compartmentId)).length;
-    const lines = [];
-    if (pockets.length > 0) lines.push(`扉のポケット${pockets.length}段も消えます。`);
-    if (inside > 0) lines.push(`中の${inside}件は「買ってきたもの」に戻ります。`);
-    lines.push('あとで「開き方」を選べば扉を付け直せます。');
+    const doors = FridgeView.sections(unit.compartments)
+      .filter((s) => s.type === 'door' && FridgeView.sectionHasDoor(s));
+    const lastDoor = doors.length <= 1;
 
-    askConfirm(`${unit.name}の扉を外しますか`, lines.join(''), () => {
+    const lines = [];
+    if (pockets.length > 0) lines.push(`この扉のポケット${pockets.length}段も消えます。`);
+    if (inside > 0) lines.push(`中の${inside}件は「買ってきたもの」に戻ります。`);
+    lines.push(lastDoor
+      ? 'あとで「開き方」を選べば扉を付け直せます。'
+      : 'ほかの扉はそのまま残ります。棚をタップすると扉を付け直せます。');
+
+    askConfirm(lastDoor ? `${unit.name}の扉を外しますか` : `${unit.name}のこの扉を外しますか`, lines.join(''), () => {
       releaseItemsIn(ids);
-      /* 扉の始まりの印を持つポケットが消えるなら、次の段へ引き継ぐ */
-      unit.compartments.forEach((c, index) => {
-        if (c.form === 'POCKET' && c.newDoor) {
-          const next = unit.compartments.slice(index + 1).find((n) => n.form !== 'POCKET');
-          if (next && next.form !== 'DRAWER') next.newDoor = true;
-        }
-      });
-      unit.compartments = unit.compartments.filter((c) => c.form !== 'POCKET');
-      unit.compartments.forEach((c) => { c.doorHeight = null; });
-      unit.doorStyle = 'NONE';
+      const rest = section.items.filter((c) => c.form !== 'POCKET');
+      /* 扉の区切りの印がポケットに付いていたら、残る段へ引き継いで、上の扉とつながらないようにする */
+      if (rest.length > 0 && section.items[0].newDoor) rest[0].newDoor = true;
+      section.items.forEach((c) => { c.doorHeight = null; c.noDoor = false; });
+      unit.compartments = unit.compartments.filter((c) => !ids.includes(c.id));
+
+      if (lastDoor) {
+        unit.compartments.forEach((c) => { c.noDoor = false; });
+        unit.doorStyle = 'NONE';
+      } else if (rest.length > 0) {
+        rest[0].noDoor = true;
+      }
       selection = { type: 'unit', id: unitId };
       commit();
     }, '外す');

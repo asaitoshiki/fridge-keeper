@@ -166,9 +166,14 @@ const FridgeView = (function () {
   }
 
 
-  /** 扉の区画を一つでも持つか。引き出しだけの収納は、扉を開いて描くものが無い */
+  /** 扉の付いた区画を一つでも持つか。引き出しだけの収納や、扉を全部外した収納は、開いて描くものが無い */
   function hasDoorSection(unit) {
-    return sections(unit.compartments).some((section) => section.type === 'door');
+    return sections(unit.compartments).some((section) => section.type === 'door' && sectionHasDoor(section));
+  }
+
+  /** 区画に扉が付いているか。外した印は区画の先頭の段が持つ */
+  function sectionHasDoor(section) {
+    return !section.items[0].noDoor;
   }
 
   /**
@@ -329,7 +334,7 @@ const FridgeView = (function () {
     const style = unit.doorStyle;
     const rowsOf = (list) => packRows(list).map((row) => rowMarkup(row, state, opts, false)).join('');
 
-    if (style === 'NONE') {
+    if (style === 'NONE' || !sectionHasDoor(section)) {
       return `
         <div class="door" data-open="none">
           <div class="door-inner">${rowsOf(section.items)}</div>
@@ -607,6 +612,8 @@ const FridgeView = (function () {
     const unit = findUnitOf(state.layout, compartment.id);
     const index = unit.compartments.findIndex((c) => c.id === compartment.id);
     const last = index === unit.compartments.length - 1;
+    const here = compartment.form === 'DRAWER' ? null : doorSectionOf(unit, compartment.id);
+    const doorlessHere = unit.doorStyle !== 'NONE' && here && !sectionHasDoor(here);
 
     return `
       <section class="settings">
@@ -646,6 +653,10 @@ const FridgeView = (function () {
           </label>
           <p class="size-hint">2ドア・3ドアのように扉が分かれている冷蔵庫は、
              扉の一番上の段でこれを入れます。</p>`}
+        ${doorlessHere ? `
+          <div class="order-buttons">
+            <button class="mini" type="button" data-door-restore="${unit.id}|${compartment.id}">＋ ここに扉を付け直す</button>
+          </div>` : ''}
 
         <div class="field-row">
           <span>大きさ</span>
@@ -1060,7 +1071,8 @@ const FridgeView = (function () {
     root.querySelectorAll('[data-door-del]').forEach((el) => {
       el.addEventListener('click', (event) => {
         event.stopPropagation();
-        opts.onDeleteDoor(el.dataset.doorDel.split('|')[0]);
+        const [unitId, firstId] = el.dataset.doorDel.split('|');
+        opts.onDeleteDoor(unitId, firstId);
       });
     });
     on('[data-door-reset]', 'click', (el) => {
@@ -1130,7 +1142,18 @@ const FridgeView = (function () {
 
     on('[data-unit-door]', 'click', (el) => {
       opts.onLayout((layout) => {
-        layout.find((u) => u.id === el.dataset.unitDoor).doorStyle = el.dataset.doorValue;
+        const unit = layout.find((u) => u.id === el.dataset.unitDoor);
+        const wasNone = unit.doorStyle === 'NONE';
+        unit.doorStyle = el.dataset.doorValue;
+        /* 「開かない」から扉を付けるときは、外してあった区画にも全部付け直す */
+        if (wasNone) unit.compartments.forEach((c) => { c.noDoor = false; });
+      });
+    });
+    on('[data-door-restore]', 'click', (el) => {
+      opts.onLayout((layout) => {
+        const [unitId, compId] = el.dataset.doorRestore.split('|');
+        const section = doorSectionOf(layout.find((u) => u.id === unitId), compId);
+        if (section) section.items.forEach((c) => { c.noDoor = false; });
       });
     });
 
@@ -1349,5 +1372,5 @@ const FridgeView = (function () {
     })[c]);
   }
 
-  return { markup, bind };
+  return { markup, bind, sections, doorSectionOf, sectionHasDoor };
 })();

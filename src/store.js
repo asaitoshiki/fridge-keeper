@@ -59,9 +59,11 @@ function defaultLayout() {
 /**
  * 段を一つ作る。段はここ以外で組み立てない。
  * doorHeight は扉の始まりの段だけが使う、開いた扉の高さ（null なら庫内に合わせる）。
+ * noDoor も扉の始まりの段だけが使う。true ならその区画は扉を外してある。
+ * 2ドアの下の扉だけ外す、のように扉は区画ごとに外せる。
  */
 function comp(id, name, kind, form, width, height, newDoor) {
-  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null };
+  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null, noDoor: false };
 }
 
 /**
@@ -219,6 +221,7 @@ function normalize(parsed) {
       /* 扉の区切りを持たなかった頃の保存データは、扉が一枚だった頃の見え方を保つ */
       if (c.newDoor === undefined) c.newDoor = false;
       if (c.doorHeight === undefined) c.doorHeight = null;
+      if (c.noDoor === undefined) c.noDoor = false;
       delete c.span;
       delete c.size;
     });
