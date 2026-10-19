@@ -2394,3 +2394,39 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 /* 温度帯だけのときは区画が少ないので、冷蔵庫を横いっぱいに描いて食材を横に並べる */
 .stage[data-layout="zones"] .grid-block { grid-template-columns: minmax(0, 1fr); }
+
+/* --- 履歴 ---------------------------------------------------------------- */
+
+.back-action { padding: 8px 12px; }
+.pane-head .back-action + h2 { flex: 1 1 auto; }
+.history-filter { align-self: flex-start; }
+.history-hint { margin: 0; }
+.history-day { display: flex; flex-direction: column; gap: 6px; }
+.history-date { margin: 4px 2px 0; font-size: 12px; font-weight: 700; color: var(--ink-3); letter-spacing: .06em; }
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 56px;
+}
+.history-row + .history-row { border-top: 1px solid var(--line); }
+.history-icon { font-size: 22px; width: 28px; text-align: center; flex: 0 0 auto; }
+.history-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.history-name { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-meta { font-size: 12px; color: var(--ink-3); }
+.history-meta b { font-weight: 700; color: var(--ink-2); }
+/* 捨てたは期限切れと同じ赤で示す。色だけに頼らず、言葉でも書いてある */
+.history-row[data-type="DISCARDED"] .history-meta b { color: var(--expired); }
+.history-row .mini { flex: 0 0 auto; }

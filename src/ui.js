@@ -25,6 +25,8 @@
   let query = '';
   /* レポートで見る期間（日数） */
   let reportDays = 30;
+  /* 履歴の絞り込み。ALL / EATEN / DISCARDED / DELETED */
+  let historyFilter = 'ALL';
   let editingId = null;
   /* 見本帳の絞り込み。開いている間だけ使う */
   let foodsCategory = 'ALL';
@@ -115,7 +117,7 @@
   /** 下の固定タブ。Android 版の NavigationBar にそのまま対応する */
   function navBar() {
     const item = (key, label, icon) => `
-      <button class="nav-item" type="button" data-view="${key}" aria-pressed="${view === key}">
+      <button class="nav-item" type="button" data-view="${key}" aria-pressed="${view === key || (key === 'report' && view === 'history')}">
         ${icon}<span>${label}</span>
       </button>`;
 
@@ -133,8 +135,23 @@
   function paneHead() {
     const titles = {
       fridge: '冷蔵庫', shopping: '買い物リスト',
-      notices: 'お知らせ', report: 'レポート', settings: '設定',
+      notices: 'お知らせ', report: 'レポート', settings: '設定', history: '履歴',
     };
+
+    if (view === 'report') {
+      return `
+        <div class="pane-head">
+          <h2>${titles[view]}</h2>
+          <button class="tab-action" type="button" data-view="history">履歴</button>
+        </div>`;
+    }
+    if (view === 'history') {
+      return `
+        <div class="pane-head">
+          <button class="tab-action back-action" type="button" data-view="report">‹ レポート</button>
+          <h2>${titles[view]}</h2>
+        </div>`;
+    }
 
     if (view !== 'fridge') return `<div class="pane-head"><h2>${titles[view]}</h2></div>`;
 
@@ -213,6 +230,7 @@
     if (current === 'shopping') return shoppingPane();
     if (current === 'notices') return noticesPane(today);
     if (current === 'report') return reportPane(today);
+    if (current === 'history') return historyPane(today);
     return settingsPane();
   }
 
@@ -371,6 +389,108 @@
           通知の時刻と日数は設定から変えられます。
         </p>
       </div>`;
+  }
+
+  /* --- 履歴 ------------------------------------------------------------- */
+
+  const HISTORY_LABELS = { EATEN: '食べた', DISCARDED: '捨てた', DELETED: '削除' };
+  const HISTORY_FILTERS = [['ALL', 'すべて'], ['EATEN', '食べた'], ['DISCARDED', '捨てた'], ['DELETED', '削除']];
+
+  /**
+   * 食べた・捨てた・削除の記録を新しい順に並べ、一件ずつ取り消せるようにする。
+   * 取り消しの帯は数秒で消えるので、あとから押し間違いに気づいたときの戻り道がここ。
+   */
+  function historyPane(today) {
+    const logs = state.logs
+      .filter((log) => historyFilter === 'ALL' || log.type === historyFilter)
+      .slice()
+      .sort((a, b) => (b.at || b.date).localeCompare(a.at || a.date));
+
+    const filters = `
+      <div class="seg seg-wrap history-filter">
+        ${HISTORY_FILTERS.map(([key, label]) => `
+          <button class="seg-btn" type="button" data-history-filter="${key}" aria-pressed="${historyFilter === key}">${label}</button>`).join('')}
+      </div>`;
+
+    if (logs.length === 0) {
+      return `${filters}<p class="report-empty">まだ記録がありません。食べた・捨てた・削除した食材がここに並び、あとから取り消せます。</p>`;
+    }
+
+    const yesterday = addDays(today, -1);
+    const dayLabel = (date) => (date === today ? '今日' : date === yesterday ? '昨日' : formatDate(date));
+    const groups = [];
+    logs.forEach((log) => {
+      const last = groups[groups.length - 1];
+      if (last && last.date === log.date) last.logs.push(log);
+      else groups.push({ date: log.date, logs: [log] });
+    });
+
+    return `
+      ${filters}
+      <p class="hint history-hint">押し間違えたものは「取り消す」で在庫に戻せます。</p>
+      ${groups.map((group) => `
+        <section class="history-day">
+          <h3 class="history-date">${dayLabel(group.date)}</h3>
+          <ul class="history-list">
+            ${group.logs.map(historyRow).join('')}
+          </ul>
+        </section>`).join('')}`;
+  }
+
+  function historyRow(log) {
+    const icon = (log.item && log.item.icon) || iconForName(log.name);
+    const time = log.at ? new Date(log.at).toTimeString().slice(0, 5) : '';
+    const action = log.type === 'EATEN' && log.item && log.quantity >= log.item.quantity ? '食べきった' : HISTORY_LABELS[log.type];
+    return `
+      <li class="history-row" data-type="${log.type}">
+        <span class="history-icon" aria-hidden="true">${icon}</span>
+        <span class="history-main">
+          <span class="history-name">${esc(log.name)}</span>
+          <span class="history-meta"><b>${action}</b>${log.quantity > 1 ? ` ×${log.quantity}` : ''}${time ? `・${time}` : ''}</span>
+        </span>
+        <button class="mini" type="button" data-revert="${log.id}">取り消す</button>
+      </li>`;
+  }
+
+  /**
+   * 記録を一件取り消す。食材は在庫に戻り、記録は消える。
+   * 食材がまだ在庫にあれば数を足し、もう無ければ記録したときの姿で戻す。
+   * 捨てた記録を消せば、食品ロスなしの日数もその分さかのぼって戻る。
+   */
+  function revertLog(logId) {
+    const log = state.logs.find((l) => l.id === logId);
+    if (!log) return;
+    const label = log.type === 'DELETED' ? '削除' : HISTORY_LABELS[log.type];
+
+    askConfirm(`「${log.name}を${label}」を取り消しますか`, `${log.name}${log.quantity > 1 ? `（${log.quantity}）` : ''}が在庫に戻ります。`, () => {
+      const existing = log.itemId ? state.items.find((i) => i.id === log.itemId) : null;
+      if (existing) {
+        existing.quantity += log.quantity;
+      } else {
+        const base = log.item ? JSON.parse(JSON.stringify(log.item)) : {
+          id: newId('item'),
+          name: log.name,
+          category: log.category,
+          icon: iconForName(log.name),
+          compartmentId: null,
+          expiryType: 'BEST_BEFORE',
+          expiryDate: null,
+          registeredAt: log.date,
+          janCode: null,
+          memo: null,
+          notifyDaysBefore: null,
+          notifyTime: null,
+        };
+        base.quantity = log.quantity;
+        /* 置いていた段が今はもう無ければ、「買ってきたもの」に戻す */
+        if (!findCompartment(state.layout, base.compartmentId)) base.compartmentId = null;
+        state.items.push(base);
+      }
+      state.logs = state.logs.filter((l) => l.id !== logId);
+      saveState(state);
+      render();
+      toast(`${log.name}を在庫に戻しました`);
+    }, '取り消す');
   }
 
   /* --- レポート ----------------------------------------------------------- */
@@ -914,6 +1034,16 @@
       });
     }
 
+    root.querySelectorAll('[data-history-filter]').forEach((el) => {
+      el.addEventListener('click', () => {
+        historyFilter = el.dataset.historyFilter;
+        render();
+      });
+    });
+    root.querySelectorAll('[data-revert]').forEach((el) => {
+      el.addEventListener('click', () => revertLog(el.dataset.revert));
+    });
+
     root.querySelectorAll('[data-range]').forEach((el) => {
       el.addEventListener('click', () => {
         reportDays = Number(el.dataset.range);
@@ -1393,6 +1523,11 @@
     return state.items.find((i) => i.id === id);
   }
 
+  /**
+   * 食べた・捨てた・削除を記録する。
+   * 履歴から取り消せるよう、記録した瞬間の食材の姿（期限・置き場所など）も一緒に残す。
+   * 削除は登録の間違いを消すためのもので、食べた・捨てたの集計には数えない。
+   */
   function logConsumption(item, type, quantity) {
     state.logs.push({
       id: newId('log'),
@@ -1401,6 +1536,9 @@
       type,
       quantity,
       date: todayIso(),
+      at: new Date().toISOString(),
+      itemId: item.id,
+      item: JSON.parse(JSON.stringify(item)),
     });
   }
 
@@ -1437,6 +1575,17 @@
     commit();
   }
 
+  /** 記録に数えずに消す。登録の間違いや、二重に入れたものを消すため */
+  function deleteItem(id) {
+    const item = findItem(id);
+    if (!item) return;
+    snapshot(`${item.name}を削除しました`);
+
+    logConsumption(item, 'DELETED', item.quantity);
+    state.items = state.items.filter((i) => i.id !== id);
+    commit();
+  }
+
   /* --- 取り消しとお知らせの帯 --------------------------------------------- */
 
   /**
@@ -1460,7 +1609,7 @@
       banner = null;
       undoState = null;
       render();
-    }, undoable ? 6000 : 4000);
+    }, undoable ? 8000 : 4000);
   }
 
   /** 誤タップ・誤スワイプの取り返しがつくよう、操作前の状態をまるごと控えておく */
@@ -1499,17 +1648,25 @@
         <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
         <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
         <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
+        <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
         <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
       </div>`;
 
     el.querySelectorAll('[data-act]').forEach((button) => {
       button.addEventListener('click', () => {
+        /**
+         * 食材のタップは指を離した瞬間に開く。スマホではそのあとに来るクリックが
+         * 開いたばかりのシートの上で判定されるので、指の下にあったボタンが押されてしまう。
+         * 開いた直後のクリックは捨てる。
+         */
+        if (Date.now() - Number(el.dataset.openedAt || 0) < 450) return;
         const id = el.dataset.itemId;
         el.close();
         if (button.dataset.act === 'eat') eatOne(id);
         else if (button.dataset.act === 'finish') eatAll(id);
         else if (button.dataset.act === 'discard') discardItem(id);
         else if (button.dataset.act === 'edit') openEditor(id);
+        else if (button.dataset.act === 'delete') deleteItem(id);
       });
     });
     return el;
@@ -1526,6 +1683,7 @@
     actionDialog.querySelector('#action-sub').textContent =
       `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`;
     actionDialog.querySelector('[data-act="eat"]').hidden = item.quantity <= 1;
+    actionDialog.dataset.openedAt = String(Date.now());
     actionDialog.showModal();
   }
 
