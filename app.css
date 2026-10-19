@@ -2430,3 +2430,36 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 /* 捨てたは期限切れと同じ赤で示す。色だけに頼らず、言葉でも書いてある */
 .history-row[data-type="DISCARDED"] .history-meta b { color: var(--expired); }
 .history-row .mini { flex: 0 0 auto; }
+
+/* 食べた数。ボタンの横に増減を置き、押す前に数を決められるようにする */
+.eat-row { display: flex; gap: 8px; align-items: stretch; }
+.eat-row[hidden] { display: none; }
+.eat-row .action-btn { flex: 1 1 auto; min-width: 0; }
+.eat-stepper {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.step-btn {
+  width: 44px;
+  min-height: 56px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.step-btn:disabled { color: var(--ink-3); opacity: .4; cursor: default; }
+.step-btn:active:not(:disabled) { background: var(--accent-soft); }
+#eat-count {
+  min-width: 28px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}

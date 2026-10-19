@@ -1509,7 +1509,7 @@
         openActions(id);
         return;
       }
-      if (mode === 'eat') eatOne(id);
+      if (mode === 'eat') eatSome(id, 1);
       else if (mode === 'finish') eatAll(id);
       else if (mode === 'discard') discardItem(id);
     });
@@ -1542,13 +1542,17 @@
     });
   }
 
-  function eatOne(id) {
+  /** count 個だけ食べた。残りが無くなれば在庫から消す */
+  function eatSome(id, count) {
     const item = findItem(id);
     if (!item) return;
-    snapshot(`${item.name}を1つ「食べた」にしました`);
+    const n = Math.max(1, Math.min(item.quantity, Math.round(count) || 1));
+    snapshot(n >= item.quantity
+      ? `${item.name}を「食べきった」にしました`
+      : `${item.name}を${n}つ「食べた」にしました`);
 
-    logConsumption(item, 'EATEN', 1);
-    item.quantity -= 1;
+    logConsumption(item, 'EATEN', n);
+    item.quantity -= n;
     if (item.quantity <= 0) state.items = state.items.filter((i) => i.id !== id);
     commit();
   }
@@ -1644,13 +1648,31 @@
       <div class="sheet-form action-form">
         <h2 id="action-title"></h2>
         <p id="action-sub"></p>
-        <button class="action-btn" type="button" data-act="eat">食べた<span>1つ減らす</span></button>
+        <div class="eat-row" id="eat-row">
+          <button class="action-btn" type="button" data-act="eat">食べた<span id="eat-sub">1つ減らす</span></button>
+          <div class="eat-stepper" role="group" aria-label="食べた数">
+            <button class="step-btn" type="button" data-eat-step="-1" aria-label="1つ少なく">−</button>
+            <output id="eat-count" aria-live="polite">1</output>
+            <button class="step-btn" type="button" data-eat-step="1" aria-label="1つ多く">＋</button>
+          </div>
+        </div>
         <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
         <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
         <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
         <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
         <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
       </div>`;
+
+    /* 食べた数。1から在庫の数まで。全部にすれば「食べきった」と同じになる */
+    el.querySelectorAll('[data-eat-step]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (Date.now() - Number(el.dataset.openedAt || 0) < 450) return;
+        const item = findItem(el.dataset.itemId);
+        if (!item) return;
+        const next = (Number(el.dataset.eatCount) || 1) + Number(button.dataset.eatStep);
+        setEatCount(Math.max(1, Math.min(item.quantity, next)), item.quantity);
+      });
+    });
 
     el.querySelectorAll('[data-act]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1662,7 +1684,7 @@
         if (Date.now() - Number(el.dataset.openedAt || 0) < 450) return;
         const id = el.dataset.itemId;
         el.close();
-        if (button.dataset.act === 'eat') eatOne(id);
+        if (button.dataset.act === 'eat') eatSome(id, Number(el.dataset.eatCount) || 1);
         else if (button.dataset.act === 'finish') eatAll(id);
         else if (button.dataset.act === 'discard') discardItem(id);
         else if (button.dataset.act === 'edit') openEditor(id);
@@ -1670,6 +1692,15 @@
       });
     });
     return el;
+  }
+
+  function setEatCount(count, quantity) {
+    actionDialog.dataset.eatCount = String(count);
+    actionDialog.querySelector('#eat-count').textContent = String(count);
+    actionDialog.querySelector('#eat-sub').textContent =
+      count >= quantity ? `${count}つ減らす（全部なので在庫から消す）` : `${count}つ減らす（残り${quantity - count}）`;
+    actionDialog.querySelector('[data-eat-step="-1"]').disabled = count <= 1;
+    actionDialog.querySelector('[data-eat-step="1"]').disabled = count >= quantity;
   }
 
   function openActions(id) {
@@ -1682,7 +1713,8 @@
       item.quantity > 1 ? `${item.name}（${item.quantity}）` : item.name;
     actionDialog.querySelector('#action-sub').textContent =
       `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`;
-    actionDialog.querySelector('[data-act="eat"]').hidden = item.quantity <= 1;
+    actionDialog.querySelector('#eat-row').hidden = item.quantity <= 1;
+    setEatCount(1, item.quantity);
     actionDialog.dataset.openedAt = String(Date.now());
     actionDialog.showModal();
   }
