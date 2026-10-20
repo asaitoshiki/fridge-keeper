@@ -111,3 +111,11 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 月と地域から暑い・涼しい時期を決めるか、使う人が「暑い／ふつう／涼しい」を選ぶ。食品ごとの暑いとき・涼しいときの値は `Rs` / `Rw`。
 位置情報は同意をもらってから使い、緯度経度から地域を決めるだけで保存も送信もしない（`regionFromLocation()`）。月に一度、開いたときに決め直す。
 置き場所の提案（冷蔵庫の画面のカード）は、移すと目安が短くなるものは出さない。
+
+## Android（ウェブ版を包んだ APK）
+
+`android-web/` はウェブ版をそのまま WebView で動かす Android アプリ。ビルドのたびに index.html と src/ などを assets/www へ写すので、ウェブ版を直せばそのまま入る。
+端末の機能へのつなぎ（共有・控えの保存・戻るボタン・端の帯の色）は `window.FridgeAndroid` と `window.fridgeBack`。ウェブ版はこれが無いときも動くように書く。
+ビルドは GitHub Actions の「Android (web)」を手動で回す（頼まれたときだけ）。APK はリリース `apk-latest` に置かれる。
+署名の鍵（`android-web/app/debug.keystore`）は固定。変えると上書きで入れ直せず、消して入れ直すと端末の中のデータが消える。
+`android/` の Kotlin 版は別のアプリ（applicationId が違う）で、いまは更新を止めている。

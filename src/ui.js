@@ -947,14 +947,16 @@
    */
   function openShare(title, text) {
     const area = shareDialog.querySelector('#share-text');
+    /* Android のアプリの中では、端末の共有の画面へつなぐ */
+    const canSend = Boolean(navigator.share || androidBridge());
     shareDialog.querySelector('#share-title').textContent = title;
     /* 共有シートが無い端末で押せない「送る」を見せても仕方がない */
-    shareDialog.querySelector('#share-send').hidden = !navigator.share;
+    shareDialog.querySelector('#share-send').hidden = !canSend;
     /* 「送る」を伏せたときは「コピー」が主役になる。主役のない画面を出さない */
     const copy = shareDialog.querySelector('#share-copy');
-    copy.classList.toggle('btn-primary', !navigator.share);
-    copy.classList.toggle('btn-ghost', Boolean(navigator.share));
-    setShareLead(navigator.share
+    copy.classList.toggle('btn-primary', !canSend);
+    copy.classList.toggle('btn-ghost', canSend);
+    setShareLead(canSend
       ? 'そのまま送るか、コピーして貼り付けてください。'
       : 'この文面をコピーして、LINE やメールに貼り付けてください。');
     area.value = text;
@@ -965,6 +967,12 @@
 
   async function sendShare() {
     const text = shareDialog.querySelector('#share-text').value;
+    const bridge = androidBridge();
+    if (bridge) {
+      bridge.share(shareDialog.dataset.title || '', text);
+      shareDialog.close();
+      return;
+    }
     try {
       await navigator.share({ title: shareDialog.dataset.title, text });
       shareDialog.close();
@@ -2279,7 +2287,44 @@
     } else {
       document.documentElement.dataset.theme = state.theme;
     }
+    /* Android のアプリでは、画面の端の帯の色もそろえる */
+    const bridge = androidBridge();
+    if (bridge && bridge.setDark) {
+      const dark = state.theme === 'dark'
+        || (state.theme === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      bridge.setDark(Boolean(dark));
+    }
   }
+
+  /** Android のアプリの中で動いているときだけ、端末の機能へのつなぎが見える */
+  function androidBridge() {
+    return typeof window.FridgeAndroid === 'object' && window.FridgeAndroid ? window.FridgeAndroid : null;
+  }
+
+  /**
+   * Android の戻るボタン。開いているシートを閉じ、編集をやめ、ほかのタブなら冷蔵庫へ戻る。
+   * 閉じるものが何も無ければ false を返し、アプリを抜けてもらう。
+   */
+  window.fridgeBack = () => {
+    const open = [...document.querySelectorAll('dialog[open]')];
+    if (open.length > 0) {
+      const top = open[open.length - 1];
+      if (top === scanDialog) closeScan();
+      else top.close();
+      return true;
+    }
+    if (editingLayout) {
+      editingLayout = false;
+      render();
+      return true;
+    }
+    if (view !== 'fridge') {
+      view = view === 'history' ? 'report' : 'fridge';
+      render();
+      return true;
+    }
+    return false;
+  };
 
   function bindSettings() {
     root.querySelectorAll('[data-theme]').forEach((el) => {
@@ -2429,6 +2474,12 @@
 
   /** 控えをファイルとして渡す。端末の中だけに置く作りなので、持ち出す道を用意しておく */
   function downloadBackup() {
+    /* Android のアプリの中ではリンクからの保存が効かないので、保存先を選ぶ画面へつなぐ */
+    const bridge = androidBridge();
+    if (bridge) {
+      bridge.saveFile(`fridge-map-${todayIso()}.json`, exportState(state));
+      return;
+    }
     const blob = new Blob([exportState(state)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
