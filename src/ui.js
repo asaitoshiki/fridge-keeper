@@ -308,6 +308,7 @@
     const u = urgencyOf(item, kindFor(item), today);
     const badges = [
       u.estimated && u.date ? '<span class="badge badge-estimate">目安</span>' : '',
+      item.openedAt ? '<span class="badge badge-opened">開封済み</span>' : '',
       item.expiryType === 'USE_BY' ? '<span class="badge badge-useby">消費期限</span>' : '',
     ].join('');
 
@@ -1093,6 +1094,7 @@
         kindFor,
         today,
         onMove: moveItem,
+        onPlaceAll: placeAllAtBest,
         onOpenItem: openActions,
         onRedraw: render,
         onLayout: applyLayout,
@@ -1579,6 +1581,63 @@
     commit();
   }
 
+  /**
+   * 開けた・使いかけの印。印を付けると、開けた日からの目安と印字の期限の早いほうを使う。
+   * 牛乳の印字が10日先でも、開けたら2〜3日で飲みきるのが目安になる。
+   */
+  function toggleOpened(id) {
+    const item = findItem(id);
+    if (!item) return;
+    item.openedAt = item.openedAt ? null : todayIso();
+    saveState(state);
+    render();
+    if (!item.openedAt) {
+      toast(`${item.name}の開けた印を消しました`);
+      return;
+    }
+    const u = urgencyOf(item, kindFor(item), todayIso());
+    toast(u.date
+      ? `${item.name}を開けた日にしました。${formatDate(u.date)}まで（目安）`
+      : `${item.name}を開けた日にしました`);
+  }
+
+  /** おすすめの置き場所へ入れる。買ってきたものを一つずつ運ばずに済むようにする */
+  function placeAtBest(id) {
+    const item = findItem(id);
+    if (!item) return;
+    const kind = kindFor(item);
+    const best = bestStorageFor(item);
+    const goal = kind ? (best && kind !== best ? best : null) : placementFor(item);
+    const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+    if (!target) return;
+    item.compartmentId = target;
+    saveState(state);
+    render();
+    toast(`${item.name}を${compartmentPath(state.layout, target)}に入れました`);
+  }
+
+  /**
+   * 「買ってきたもの」を全部、それぞれの置き場所へ入れる。
+   * 置き場所が決められないもの（その他など）は残し、残った数を伝える。
+   */
+  function placeAllAtBest() {
+    const waiting = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
+    let placed = 0;
+    waiting.forEach((item) => {
+      const goal = placementFor(item);
+      const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+      if (!target) return;
+      item.compartmentId = target;
+      placed += 1;
+    });
+    saveState(state);
+    render();
+    const left = waiting.length - placed;
+    toast(left > 0
+      ? `${placed}件を入れました。${left}件は置き場所が決められないので、つまんで入れてください`
+      : `${placed}件をそれぞれの場所に入れました`);
+  }
+
   /** 記録に数えずに消す。登録の間違いや、二重に入れたものを消すため */
   function deleteItem(id) {
     const item = findItem(id);
@@ -1648,6 +1707,10 @@
       <div class="sheet-form action-form">
         <h2 id="action-title"></h2>
         <p id="action-sub"></p>
+        <p class="action-tip" id="action-tip" hidden></p>
+        <button class="action-btn action-place" type="button" data-act="place" hidden>
+          <b id="place-label"></b><span id="place-sub"></span>
+        </button>
         <div class="eat-row" id="eat-row">
           <button class="action-btn" type="button" data-act="eat">食べた<span id="eat-sub">1つ減らす</span></button>
           <div class="eat-stepper" role="group" aria-label="食べた数">
@@ -1658,6 +1721,9 @@
         </div>
         <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
         <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
+        <button class="action-btn action-plain" type="button" data-act="open">
+          <b id="open-label">開けた・使いかけ</b><span id="open-sub">開けたあとの目安に切り替えます</span>
+        </button>
         <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
         <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
         <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
@@ -1689,6 +1755,8 @@
         else if (button.dataset.act === 'discard') discardItem(id);
         else if (button.dataset.act === 'edit') openEditor(id);
         else if (button.dataset.act === 'delete') deleteItem(id);
+        else if (button.dataset.act === 'open') toggleOpened(id);
+        else if (button.dataset.act === 'place') placeAtBest(id);
       });
     });
     return el;
@@ -1712,7 +1780,39 @@
     actionDialog.querySelector('#action-title').textContent =
       item.quantity > 1 ? `${item.name}（${item.quantity}）` : item.name;
     actionDialog.querySelector('#action-sub').textContent =
-      `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`;
+      `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`
+      + (item.openedAt ? `・${formatDate(item.openedAt)}に開けた` : '');
+
+    /* 置き場所の助言。いまの場所がおすすめと違うときだけ、おすすめを先に言う */
+    const kind = kindFor(item);
+    const best = bestStorageFor(item);
+    const tip = storageTipFor(item);
+    const lines = [];
+    if (best && kind && kind !== best) lines.push(`<b>${STORAGE_LABELS[best]}がおすすめです。</b>`);
+    if (tip) lines.push(esc(tip));
+    const tipEl = actionDialog.querySelector('#action-tip');
+    tipEl.innerHTML = lines.join('');
+    tipEl.hidden = lines.length === 0;
+
+    /* まだどこにも入れていない食材は、おすすめの場所へそのまま入れられるようにする */
+    const place = actionDialog.querySelector('[data-act="place"]');
+    /* 入れていないものは決め打ちの先へ、別の場所にあるものはおすすめが分かるときだけ移せるようにする */
+    const goal = kind ? (best && kind !== best ? best : null) : placementFor(item);
+    const goalHere = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+    place.hidden = !goalHere;
+    if (!place.hidden) {
+      const goalDays = estimateDaysFor(item, goal);
+      actionDialog.querySelector('#place-label').textContent =
+        `${compartmentPath(state.layout, goalHere)}に${kind ? '移す' : '入れる'}`;
+      actionDialog.querySelector('#place-sub').textContent =
+        (goal === best ? 'おすすめの置き場所' : `${CATEGORY_LABELS[item.category]}のいつもの置き場所`)
+        + (goalDays !== null && !item.expiryDate ? `。目安は${goalDays}日` : '');
+    }
+
+    actionDialog.querySelector('#open-label').textContent = item.openedAt ? '開けていない' : '開けた・使いかけ';
+    actionDialog.querySelector('#open-sub').textContent = item.openedAt
+      ? `${formatDate(item.openedAt)}に開けた印を消して、開ける前の目安に戻します`
+      : '開けたあとの目安に切り替えます';
     actionDialog.querySelector('#eat-row').hidden = item.quantity <= 1;
     setEatCount(1, item.quantity);
     actionDialog.dataset.openedAt = String(Date.now());
@@ -1871,6 +1971,8 @@
     ['f-category', 'f-place', 'f-date'].forEach((id) => {
       el.querySelector(`#${id}`).addEventListener('change', updateHint);
     });
+    /* 名前でおすすめの置き場所と目安が変わるので、打つたびに出し直す */
+    el.querySelector('#f-name').addEventListener('input', updateHint);
     return el;
   }
 
@@ -1925,18 +2027,26 @@
     const category = dialog.querySelector('#f-category').value;
     const compartmentId = dialog.querySelector('#f-place').value;
     const compartment = findCompartment(state.layout, compartmentId);
-    const days = presetDaysFor(category, compartment ? compartment.kind : null);
+    const name = dialog.querySelector('#f-name').value.trim();
+    const probe = { name, category };
+    const days = estimateDaysFor(probe, compartment ? compartment.kind : null);
     const base = editingId ? state.items.find((i) => i.id === editingId).registeredAt : todayIso();
+    const best = bestStorageFor(probe);
+    const advice = best && (!compartment || compartment.kind !== best)
+      ? `<br>${esc(name)}は<b>${STORAGE_LABELS[best]}</b>がおすすめです。`
+      : '';
 
     if (!compartment) {
-      hint.innerHTML = 'まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。';
+      hint.innerHTML = `まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。${advice}`;
       return;
     }
     if (days === null) {
       hint.innerHTML = `${CATEGORY_LABELS[category]}を${STORAGE_LABELS[compartment.kind]}で保管する場合の目安がないため、<b>期限なし</b>として扱います。`;
       return;
     }
-    hint.innerHTML = `期限を空にすると、目安の <b>${days}日</b> を使って <b>${formatDate(addDays(base, days))}</b> まで（目安）として表示します。`;
+    hint.innerHTML = days === 0
+      ? `${STORAGE_LABELS[compartment.kind]}には向かないため、<b>その日のうち</b>（目安）として表示します。${advice}`
+      : `期限を空にすると、目安の <b>${days}日</b> を使って <b>${formatDate(addDays(base, days))}</b> まで（目安）として表示します。${advice}`;
   }
 
   function onSubmit(event) {

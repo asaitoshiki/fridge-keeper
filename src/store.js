@@ -292,6 +292,8 @@ function normalize(parsed) {
     if (item.icon === undefined) item.icon = iconForName(item.name);
     if (item.notifyDaysBefore === undefined) item.notifyDaysBefore = null;
     if (item.notifyTime === undefined) item.notifyTime = null;
+    /* 開けた日。null なら開ける前（または分からない） */
+    if (item.openedAt === undefined) item.openedAt = null;
   });
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();

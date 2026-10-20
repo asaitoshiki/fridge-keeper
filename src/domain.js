@@ -40,31 +40,94 @@ const EXPIRY_TYPE_LABELS = {
 
 /**
  * 期限が印字されていない食材の日持ちの目安。カテゴリ × 収納の種類で日数を引く。
+ * よく使う食品は shelflife.js に個別の値があり、そちらを先に使う。ここはその受け皿。
  * ここで返す日数は一般的な参考値であり、実際の安全性を保証するものではない。
  * この値から導いた期限を表示する箇所には必ず「目安」バッジを付けること。
+ *
+ * どの組み合わせにも値を持たせる。肉を常温に置いたときに「期限なし」と出すと、
+ * いちばん危ない置き方がいちばん安心して見える。向かない置き方は 0（その日のうち）にする。
  */
 const PRESET_DAYS = {
-  VEGETABLE: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 7, ROOM_TEMP: 5 },
-  FRUIT: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 7, ROOM_TEMP: 5 },
-  MEAT_FISH: { FRIDGE: 2, FREEZER: 30 },
-  DAIRY: { FRIDGE: 7, FREEZER: 14 },
-  EGG: { FRIDGE: 14, ROOM_TEMP: 7 },
-  PROCESSED: { FRIDGE: 7, FREEZER: 30, ROOM_TEMP: 30 },
-  FROZEN: { FREEZER: 90 },
-  SEASONING: { FRIDGE: 90, ROOM_TEMP: 90 },
-  DRINK: { FRIDGE: 7, ROOM_TEMP: 30 },
+  VEGETABLE: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 7, ROOM_TEMP: 3 },
+  FRUIT: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 7, ROOM_TEMP: 3 },
+  MEAT_FISH: { FRIDGE: 2, FREEZER: 30, VEGETABLE_DRAWER: 1, ROOM_TEMP: 0 },
+  DAIRY: { FRIDGE: 7, FREEZER: 14, VEGETABLE_DRAWER: 5, ROOM_TEMP: 0 },
+  EGG: { FRIDGE: 14, FREEZER: 30, VEGETABLE_DRAWER: 10, ROOM_TEMP: 3 },
+  PROCESSED: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 5, ROOM_TEMP: 30 },
+  FROZEN: { FREEZER: 90, FRIDGE: 1, VEGETABLE_DRAWER: 1, ROOM_TEMP: 0 },
+  SEASONING: { FRIDGE: 90, FREEZER: 180, VEGETABLE_DRAWER: 90, ROOM_TEMP: 90 },
+  DRINK: { FRIDGE: 30, FREEZER: 30, VEGETABLE_DRAWER: 30, ROOM_TEMP: 30 },
   OTHER: { FRIDGE: 7, FREEZER: 30, VEGETABLE_DRAWER: 7, ROOM_TEMP: 7 },
 };
 
 /**
- * 日持ちの目安日数。未定義の組み合わせ（肉・魚を野菜室に置く等）と、
- * まだどこにも入れていない食材（kind が null）では null を返し、期限なし扱いにする。
+ * 開けた・切ったあとの冷蔵での目安。食品ごとの値が無いときに使う。
+ * 常温で開けたまま置けるのは調味料くらいなので、それ以外の常温は 0 にする。
+ */
+const OPENED_DAYS = {
+  VEGETABLE: 2, FRUIT: 1, MEAT_FISH: 1, DAIRY: 3, EGG: 2, PROCESSED: 2,
+  FROZEN: 1, SEASONING: 30, DRINK: 2, OTHER: 3,
+};
+const OPENED_ROOM_DAYS = { SEASONING: 30 };
+
+/** カテゴリだけで引く目安日数。まだどこにも入れていない食材（kind が null）は null */
+function presetDaysFor(category, storageKind) {
+  if (!storageKind) return null;
+  const days = (PRESET_DAYS[category] || PRESET_DAYS.OTHER)[storageKind];
+  return days === undefined ? null : days;
+}
+
+/**
+ * 食材の日持ちの目安日数。食品ごとの値があればそれ、無ければカテゴリの値。
+ * まだどこにも入れていない食材では null を返し、期限なし扱いにする。
  * この null は異常ではなく「目安を出せない」正常な状態。
  */
-function presetDaysFor(category, storageKind) {
-  if (storageKind === null) return null;
-  const days = PRESET_DAYS[category][storageKind];
-  return days === undefined ? null : days;
+function estimateDaysFor(item, storageKind) {
+  if (!storageKind) return null;
+  const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+  const own = food ? food[SHELF_KEYS[storageKind]] : undefined;
+  return typeof own === 'number' ? own : presetDaysFor(item.category, storageKind);
+}
+
+/**
+ * 開けたあとの目安日数。冷凍庫では開けても日持ちはほとんど変わらないので null（変えない）。
+ */
+function openedDaysFor(item, storageKind) {
+  if (!storageKind || storageKind === 'FREEZER') return null;
+  const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+  if (storageKind === 'ROOM_TEMP') {
+    if (food && typeof food.openR === 'number') return food.openR;
+    const fallback = OPENED_ROOM_DAYS[item.category];
+    return typeof fallback === 'number' ? fallback : 0;
+  }
+  if (food && typeof food.open === 'number') return food.open;
+  return OPENED_DAYS[item.category] !== undefined ? OPENED_DAYS[item.category] : OPENED_DAYS.OTHER;
+}
+
+/**
+ * 見本帳に無い食品を、どこへ入れるかの決め打ち。「おすすめ」とは言わず、入れる先を決めるだけに使う。
+ * 飲料は開ける前なら常温でも冷蔵でもよいが、すぐ飲むことが多いので冷蔵に寄せる。
+ */
+const CATEGORY_STORAGE = {
+  VEGETABLE: 'VEGETABLE_DRAWER', FRUIT: 'VEGETABLE_DRAWER', MEAT_FISH: 'FRIDGE', DAIRY: 'FRIDGE',
+  EGG: 'FRIDGE', PROCESSED: 'FRIDGE', FROZEN: 'FREEZER', SEASONING: 'ROOM_TEMP', DRINK: 'FRIDGE',
+};
+
+/** 入れる先の収納の種類。食品ごとのおすすめ、無ければカテゴリの決め打ち */
+function placementFor(item) {
+  return bestStorageFor(item) || CATEGORY_STORAGE[item.category] || null;
+}
+
+/** その食品のおすすめの置き場所（収納の種類）。分からなければ null */
+function bestStorageFor(item) {
+  const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+  return food && food.best ? SHELF_KIND_OF[food.best] : null;
+}
+
+/** 保存のコツの一文。分からなければ null */
+function storageTipFor(item) {
+  const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+  return food && food.tip ? food.tip : null;
 }
 
 /* --- 日付ユーティリティ ------------------------------------------------ */
@@ -101,19 +164,36 @@ function formatDate(iso) {
 /* --- 実効期限 ---------------------------------------------------------- */
 
 /**
- * 実効期限 = 入力された期限、なければ 登録日 + プリセット日数。
+ * 実効期限 = 入力された期限、なければ 登録日 + 目安日数。
+ * 開けた日があれば、開けた日 + 開けたあとの目安日数 と比べて早いほうを使う。
+ * 印字の期限は開ける前の話なので、開けたら印字より前に来ることが多い（牛乳など）。
  * 推定値は保存せず参照のたびにここで導出する。収納を移せば目安も変わる。
- * 戻り値 date が null なら期限なし扱い（アラート対象外）。
+ * 戻り値 date が null なら期限なし扱い（アラート対象外）。opened は開けたあとの目安を使ったか。
  */
 function effectiveExpiry(item, storageKind) {
-  if (item.expiryDate) {
-    return { date: item.expiryDate, estimated: false };
+  let date = item.expiryDate || null;
+  let estimated = !item.expiryDate;
+  let opened = false;
+
+  if (!date) {
+    const days = estimateDaysFor(item, storageKind);
+    if (days !== null) date = addDays(item.registeredAt, days);
   }
-  const days = presetDaysFor(item.category, storageKind);
-  if (days === null) {
-    return { date: null, estimated: true };
+
+  if (item.openedAt) {
+    const days = openedDaysFor(item, storageKind);
+    if (days !== null) {
+      const afterOpen = addDays(item.openedAt, days);
+      if (!date || afterOpen < date) {
+        date = afterOpen;
+        estimated = true;
+        opened = true;
+      }
+    }
   }
-  return { date: addDays(item.registeredAt, days), estimated: true };
+
+  if (date === null) return { date: null, estimated: true, opened: false };
+  return { date, estimated, opened };
 }
 
 /* --- 緊急度 ------------------------------------------------------------ */
@@ -123,12 +203,12 @@ function effectiveExpiry(item, storageKind) {
  * 期限切れ / 当日〜1日前 / 2〜3日前 / 4〜7日前 / それ以降 / 期限なし。
  */
 function urgencyOf(item, storageKind, today) {
-  const { date, estimated } = effectiveExpiry(item, storageKind);
+  const { date, estimated, opened } = effectiveExpiry(item, storageKind);
   if (date === null) {
-    return { level: 'NONE', days: null, date: null, estimated };
+    return { level: 'NONE', days: null, date: null, estimated, opened };
   }
   const days = diffDays(today, date);
-  return { level: levelForDays(days), days, date, estimated };
+  return { level: levelForDays(days), days, date, estimated, opened };
 }
 
 function levelForDays(days) {

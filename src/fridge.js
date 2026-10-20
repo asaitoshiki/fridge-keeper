@@ -484,6 +484,8 @@ const FridgeView = (function () {
           <span class="tray-hint">${items.length > 0 ? 'つまんで冷蔵庫へ入れる' : 'ここは空です'}</span>
         </header>
         <div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>
+        ${items.length > 0 ? `
+          <button class="tray-place" type="button" data-place-all>おすすめの場所に全部入れる</button>` : ''}
       </section>`;
   }
 
@@ -1056,6 +1058,8 @@ const FridgeView = (function () {
     layoutSwings(root);
     if (opts.editing) return bindEditor(root, state, opts);
     root.querySelectorAll('.chip[data-item]').forEach((chipEl) => attachDrag(chipEl, opts));
+    const placeAll = root.querySelector('[data-place-all]');
+    if (placeAll && opts.onPlaceAll) placeAll.addEventListener('click', () => opts.onPlaceAll());
   }
 
   function bindEditor(root, state, opts) {

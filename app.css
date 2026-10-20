@@ -2463,3 +2463,37 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
+
+/* 開封済みの印。期限の緊急度の色は使わず、事実だけを示す */
+.badge-opened { background: var(--accent-soft); color: var(--accent); border: 1px solid transparent; }
+
+/* 置き場所の助言。シートの見出しのすぐ下に、控えめな地の色で置く */
+.action-tip {
+  margin: 0 0 4px !important;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-2) !important;
+  font-size: 12.5px !important;
+  line-height: 1.6;
+}
+.action-tip b { color: var(--ink); display: block; }
+.action-place { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.action-btn > b { font-weight: inherit; }
+
+/* hidden を付けた要素は、display を指定した部品でも必ず隠す */
+[hidden] { display: none !important; }
+
+/* 買ってきたものをまとめて片付ける。つまんで運ぶ操作の代わりに、一度で済ませる道 */
+.tray-place {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
