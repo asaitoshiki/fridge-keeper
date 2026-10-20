@@ -238,6 +238,8 @@ function emptyState() {
     janNames: {},
     /* 配色。'auto' は端末の設定に従う。明るい場所で使う人のために選べるようにしてある */
     theme: 'auto',
+    /* 部屋の暑さ。常温の目安を変える。気温は外から取らず、月と地域か、使う人の選択で決める */
+    climate: { mode: 'AUTO', region: 'HONSHU' },
     sampleLoaded: false,
   };
 }
@@ -287,6 +289,9 @@ function normalize(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
   if (!['auto', 'light', 'dark'].includes(state.theme)) state.theme = 'auto';
+  state.climate = { mode: 'AUTO', region: 'HONSHU', ...(state.climate || {}) };
+  if (!CLIMATE_LABELS[state.climate.mode]) state.climate.mode = 'AUTO';
+  if (!CLIMATE_REGIONS[state.climate.region]) state.climate.region = 'HONSHU';
   /* 絵文字と食材ごとの通知を持たなかった頃の保存データを補う */
   state.items.forEach((item) => {
     if (item.icon === undefined) item.icon = iconForName(item.name);

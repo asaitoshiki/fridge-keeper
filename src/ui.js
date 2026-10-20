@@ -25,6 +25,8 @@
   let query = '';
   /* レポートで見る期間（日数） */
   let reportDays = 30;
+  /* 「暑い時期」「ふつうの時期」のように、名詞の前に付ける形 */
+  const CLIMATE_ADJ = { HOT: '暑い', MILD: 'ふつうの', COOL: '涼しい' };
   /* 履歴の絞り込み。ALL / EATEN / DISCARDED / DELETED */
   let historyFilter = 'ALL';
   let editingId = null;
@@ -70,6 +72,8 @@
   /* --- 描画 ------------------------------------------------------------ */
 
   function render() {
+    /* 部屋の暑さは目安の計算すべてに効くので、描く前に毎回渡しておく */
+    setClimate(state.climate);
     const today = todayIso();
     /**
      * 描き直しでは中身を丸ごと入れ替えるので、何もしないと先頭へ飛ぶ。
@@ -636,6 +640,28 @@
             およびデータの保全を保証するものではありません。
             本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
           </p>
+        </section>
+
+        <section class="settings-block">
+          <h3>部屋の暑さ</h3>
+          <p class="hint">常温に置いた食材の目安を、部屋の暑さで変えます。冷蔵庫と冷凍庫の中は変えません。</p>
+          <div class="seg seg-wrap">
+            ${Object.entries(CLIMATE_LABELS).map(([key, label]) => `
+              <button class="seg-btn" type="button" data-climate-mode="${key}"
+                      aria-pressed="${state.climate.mode === key}">${label}</button>`).join('')}
+          </div>
+          ${state.climate.mode === 'AUTO' ? `
+            <label class="field-row">
+              <span>地域</span>
+              <select id="climate-region">
+                ${Object.entries(CLIMATE_REGIONS).map(([key, r]) => `
+                  <option value="${key}" ${state.climate.region === key ? 'selected' : ''}>${r.label}</option>`).join('')}
+              </select>
+            </label>
+            <p class="hint">いまは<b>${CLIMATE_ADJ[climateOn(todayIso())]}時期</b>として見ています。
+              暑い時期は常温の野菜・果物・パン・卵を短めに、涼しい時期は丸ごとの白菜や大根、いも類を長めに見ます。
+              暖房の効いた部屋など季節どおりでないときは、「暑い」「ふつう」「涼しい」から選んでください。</p>` : `
+            <p class="hint">季節にかかわらず<b>${CLIMATE_ADJ[state.climate.mode]}部屋</b>として目安を出します。</p>`}
         </section>
 
         <section class="settings-block">
@@ -2119,6 +2145,22 @@
         render();
       });
     });
+
+    root.querySelectorAll('[data-climate-mode]').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.climate.mode = el.dataset.climateMode;
+        saveState(state);
+        render();
+      });
+    });
+    const region = root.querySelector('#climate-region');
+    if (region) {
+      region.addEventListener('change', () => {
+        state.climate.region = region.value;
+        saveState(state);
+        render();
+      });
+    }
 
     /* 冷蔵庫の中の分け方。食材は同じ温度帯の段へ移すので、切り替えても消えない */
     root.querySelectorAll('[data-layout-mode]').forEach((el) => {

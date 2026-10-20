@@ -70,6 +70,67 @@ const OPENED_DAYS = {
 };
 const OPENED_ROOM_DAYS = { SEASONING: 30 };
 
+/* --- 部屋の暑さ ---------------------------------------------------------- */
+
+/**
+ * 常温の日持ちは部屋の暑さで大きく変わる。冷蔵庫と冷凍庫の中は一年中ほぼ同じなので変えない。
+ * 気温を外から取ってくることはしない（端末の外へ出ない作り）。代わりに、
+ * 月と地域から夏・冬を決めるか、使う人が「暑い」「涼しい」を選ぶ。
+ *
+ * HOT  暑い（おおむね25℃以上）。常温の野菜・果物・パン・卵などは短めに見る
+ * MILD ふつう。表の値そのまま
+ * COOL 涼しい（おおむね15℃以下）。丸ごとの白菜・大根・いも類などは長めに見る
+ */
+const CLIMATE_LABELS = { AUTO: '季節で自動', HOT: '暑い', MILD: 'ふつう', COOL: '涼しい' };
+
+/** 地域ごとの、暑い月と涼しい月 */
+const CLIMATE_REGIONS = {
+  HOKKAIDO: { label: '北海道', hot: [7, 8], cool: [11, 12, 1, 2, 3] },
+  TOHOKU: { label: '東北・北陸', hot: [7, 8], cool: [12, 1, 2, 3] },
+  HONSHU: { label: '関東〜九州', hot: [6, 7, 8, 9], cool: [12, 1, 2] },
+  OKINAWA: { label: '沖縄', hot: [5, 6, 7, 8, 9, 10], cool: [] },
+};
+
+let climateSetting = { mode: 'AUTO', region: 'HONSHU' };
+
+/** 設定の画面で選んだ部屋の暑さを、目安の計算に渡す */
+function setClimate(setting) {
+  const mode = setting && CLIMATE_LABELS[setting.mode] ? setting.mode : 'AUTO';
+  const region = setting && CLIMATE_REGIONS[setting.region] ? setting.region : 'HONSHU';
+  climateSetting = { mode, region };
+}
+
+/** その日の部屋の暑さ。登録した日（開けた日）の暑さで、その食材の目安を決める */
+function climateOn(iso) {
+  if (climateSetting.mode !== 'AUTO') return climateSetting.mode;
+  const month = Number(String(iso || todayIso()).slice(5, 7));
+  const region = CLIMATE_REGIONS[climateSetting.region];
+  if (region.hot.includes(month)) return 'HOT';
+  if (region.cool.includes(month)) return 'COOL';
+  return 'MILD';
+}
+
+/**
+ * 暑さで常温の目安を変えるカテゴリ。調味料・飲料・冷凍食品は、開ける前なら暑さで大きくは変わらない。
+ * 60日以上持つもの（缶詰・乾物など）も変えない。
+ */
+const CLIMATE_SENSITIVE = ['VEGETABLE', 'FRUIT', 'EGG', 'PROCESSED', 'DAIRY', 'MEAT_FISH', 'OTHER'];
+
+/**
+ * 常温の目安を部屋の暑さに合わせる。
+ * 食品ごとに暑いとき（Rs）・涼しいとき（Rw）の値があればそれを使う。
+ * 無ければ、暑いときは暑さに弱いカテゴリだけ半分にする。涼しいときは値があるものだけ延ばす。
+ */
+function roomDaysFor(days, item, food, climate, hotKey, coolKey) {
+  if (climate === 'HOT') {
+    if (food && typeof food[hotKey] === 'number') return food[hotKey];
+    if (CLIMATE_SENSITIVE.includes(item.category) && days < 60) return Math.floor(days / 2);
+    return days;
+  }
+  if (climate === 'COOL' && food && typeof food[coolKey] === 'number') return food[coolKey];
+  return days;
+}
+
 /** カテゴリだけで引く目安日数。まだどこにも入れていない食材（kind が null）は null */
 function presetDaysFor(category, storageKind) {
   if (!storageKind) return null;
@@ -86,7 +147,9 @@ function estimateDaysFor(item, storageKind) {
   if (!storageKind) return null;
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
   const own = food ? food[SHELF_KEYS[storageKind]] : undefined;
-  return typeof own === 'number' ? own : presetDaysFor(item.category, storageKind);
+  const days = typeof own === 'number' ? own : presetDaysFor(item.category, storageKind);
+  if (days === null || storageKind !== 'ROOM_TEMP') return days;
+  return roomDaysFor(days, item, food, climateOn(item.registeredAt), 'Rs', 'Rw');
 }
 
 /**
@@ -96,9 +159,9 @@ function openedDaysFor(item, storageKind) {
   if (!storageKind || storageKind === 'FREEZER') return null;
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
   if (storageKind === 'ROOM_TEMP') {
-    if (food && typeof food.openR === 'number') return food.openR;
-    const fallback = OPENED_ROOM_DAYS[item.category];
-    return typeof fallback === 'number' ? fallback : 0;
+    let days = food && typeof food.openR === 'number' ? food.openR : OPENED_ROOM_DAYS[item.category];
+    if (typeof days !== 'number') return 0;
+    return roomDaysFor(days, item, food, climateOn(item.openedAt), 'openRs', 'openRw');
   }
   if (food && typeof food.open === 'number') return food.open;
   return OPENED_DAYS[item.category] !== undefined ? OPENED_DAYS[item.category] : OPENED_DAYS.OTHER;
@@ -121,13 +184,18 @@ function placementFor(item) {
 /** その食品のおすすめの置き場所（収納の種類）。分からなければ null */
 function bestStorageFor(item) {
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
-  return food && food.best ? SHELF_KIND_OF[food.best] : null;
+  if (!food || !food.best) return null;
+  /* 暑い時期だけ置き場所を変えたほうがいいもの（たまねぎ・チョコなど） */
+  if (climateOn(todayIso()) === 'HOT' && food.bestS) return SHELF_KIND_OF[food.bestS];
+  return SHELF_KIND_OF[food.best];
 }
 
-/** 保存のコツの一文。分からなければ null */
+/** 保存のコツの一文。暑い時期だけのコツがあれば、暑い時期はそちらを言う。分からなければ null */
 function storageTipFor(item) {
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
-  return food && food.tip ? food.tip : null;
+  if (!food) return null;
+  if (climateOn(todayIso()) === 'HOT' && food.tipS) return food.tipS;
+  return food.tip || null;
 }
 
 /* --- 日付ユーティリティ ------------------------------------------------ */
