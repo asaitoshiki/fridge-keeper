@@ -88,8 +88,28 @@ const CLIMATE_REGIONS = {
   HOKKAIDO: { label: '北海道', hot: [7, 8], cool: [11, 12, 1, 2, 3] },
   TOHOKU: { label: '東北・北陸', hot: [7, 8], cool: [12, 1, 2, 3] },
   HONSHU: { label: '関東〜九州', hot: [6, 7, 8, 9], cool: [12, 1, 2] },
-  OKINAWA: { label: '沖縄', hot: [5, 6, 7, 8, 9, 10], cool: [] },
+  OKINAWA: { label: '沖縄・奄美', hot: [5, 6, 7, 8, 9, 10], cool: [] },
+  TROPICAL: { label: '一年中暑い地域', hot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], cool: [] },
+  SOUTH: { label: '南半球', hot: [12, 1, 2, 3], cool: [6, 7, 8] },
 };
+
+/**
+ * 緯度経度から地域を決める。端末の中だけで決め、位置そのものはどこにも残さない。
+ * 細かい境目は気にしない。夏と冬の長さが大きく違う所だけ分かれれば足りる。
+ */
+function regionFromLocation(lat, lon) {
+  const inJapan = lat >= 20 && lat <= 46 && lon >= 122 && lon <= 154;
+  if (inJapan) {
+    if (lat < 29) return 'OKINAWA';
+    if (lat >= 41.5) return 'HOKKAIDO';
+    if (lat >= 37.5) return 'TOHOKU';
+    return 'HONSHU';
+  }
+  if (Math.abs(lat) < 23.5) return 'TROPICAL';
+  if (lat < 0) return 'SOUTH';
+  if (lat >= 45) return 'HOKKAIDO';
+  return 'HONSHU';
+}
 
 let climateSetting = { mode: 'AUTO', region: 'HONSHU' };
 

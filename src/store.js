@@ -239,7 +239,12 @@ function emptyState() {
     /* 配色。'auto' は端末の設定に従う。明るい場所で使う人のために選べるようにしてある */
     theme: 'auto',
     /* 部屋の暑さ。常温の目安を変える。気温は外から取らず、月と地域か、使う人の選択で決める */
-    climate: { mode: 'AUTO', region: 'HONSHU' },
+    /**
+     * consent   位置情報を使う同意。null=まだ聞いていない / 'GRANTED' / 'DENIED'
+     * source    地域をどう決めたか。'LOCATION'=位置情報から / 'MANUAL'=自分で選んだ
+     * locatedAt 位置情報から地域を決めた日。位置（緯度経度）そのものは保存しない
+     */
+    climate: { mode: 'AUTO', region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null },
     sampleLoaded: false,
   };
 }
@@ -289,7 +294,8 @@ function normalize(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
   if (!['auto', 'light', 'dark'].includes(state.theme)) state.theme = 'auto';
-  state.climate = { mode: 'AUTO', region: 'HONSHU', ...(state.climate || {}) };
+  state.climate = { mode: 'AUTO', region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null, ...(state.climate || {}) };
+  if (!['GRANTED', 'DENIED'].includes(state.climate.consent)) state.climate.consent = null;
   if (!CLIMATE_LABELS[state.climate.mode]) state.climate.mode = 'AUTO';
   if (!CLIMATE_REGIONS[state.climate.region]) state.climate.region = 'HONSHU';
   /* 絵文字と食材ごとの通知を持たなかった頃の保存データを補う */

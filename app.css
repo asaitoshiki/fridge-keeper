@@ -2497,3 +2497,33 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-weight: 700;
   cursor: pointer;
 }
+
+/* --- 季節と地域に合わせた提案 ------------------------------------------------ */
+
+/* 期限の警告ではないので、緊急度の色は使わない。落ち着いた地の色のカードにする */
+.advice {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.advice-head { font-size: 15px; font-weight: 700; color: var(--ink); }
+.advice-head b { color: var(--accent); }
+.advice-body { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.advice-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.advice-actions .btn { flex: 1 1 auto; }
+.advice-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; }
+.advice-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.advice-row + .advice-row { border-top: 1px solid var(--line); }
+.advice-icon { font-size: 22px; width: 28px; text-align: center; flex: 0 0 auto; }
+.advice-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.advice-name { font-size: 14px; font-weight: 600; color: var(--ink); }
+.advice-why { font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+.advice-why b { color: var(--accent); }
+.advice-row .mini { flex: 0 0 auto; }
+.advice-all { margin-top: 2px; }

@@ -69,6 +69,12 @@
   applyTheme();
   render();
 
+  /* 同意をもらっていれば、月に一度だけ地域を決め直す。引っ越しや長い旅先でもずれないように */
+  if (state.climate.consent === 'GRANTED' && state.climate.source === 'LOCATION' && state.climate.mode === 'AUTO'
+    && (!state.climate.locatedAt || diffDays(state.climate.locatedAt, todayIso()) >= 30)) {
+    locateRegion(true);
+  }
+
   /* --- 描画 ------------------------------------------------------------ */
 
   function render() {
@@ -88,6 +94,8 @@
       '<main class="screen">',
       view === 'fridge' ? summary(today) : '',
       view === 'fridge' ? streakBanner(today) : '',
+      view === 'fridge' && !editingLayout ? locationAsk() : '',
+      view === 'fridge' && !editingLayout ? placementAdvice(today) : '',
       paneHead(),
       paneFor(view, today),
       view === 'fridge' || view === 'notices' ? disclaimer() : '',
@@ -227,6 +235,131 @@
         <span class="streak-days"><b>${days}</b>日</span>
         <span class="streak-best">最高 ${best}日</span>
       </section>`;
+  }
+
+  /* --- 季節と地域に合わせた保存の提案 ------------------------------------------ */
+
+  /**
+   * 位置情報を使ってよいかを一度だけ聞く。画面をふさがないよう、冷蔵庫の上にカードで出す。
+   * 位置からは地域（北海道〜沖縄）だけを決め、緯度経度は保存も送信もしない。
+   */
+  function locationAsk() {
+    if (state.climate.consent !== null || state.climate.mode !== 'AUTO') return '';
+    if (!('geolocation' in navigator)) return '';
+    return `
+      <section class="advice advice-ask">
+        <span class="advice-head">季節と地域に合わせて、保存方法を提案します</span>
+        <span class="advice-body">位置情報から住んでいる地域（北海道〜沖縄など）を判断し、今の時期に合ったおすすめの置き場所を出します。
+          位置は地域を決めるのに使うだけで、保存も送信もしません。</span>
+        <div class="advice-actions">
+          <button class="btn btn-primary" type="button" id="location-yes">位置情報を使う</button>
+          <button class="btn btn-ghost" type="button" id="location-no">使わない</button>
+        </div>
+      </section>`;
+  }
+
+  /**
+   * 位置情報から地域を決める。精度は要らないので、粗い位置で早く返してもらう。
+   * silent は起動時の決め直し。うまくいかなくても黙って前の地域を使い続ける。
+   */
+  function locateRegion(silent) {
+    if (!('geolocation' in navigator)) {
+      if (!silent) toast('この端末では位置情報を使えません。設定から地域を選べます');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition((position) => {
+      const region = regionFromLocation(position.coords.latitude, position.coords.longitude);
+      const changed = region !== state.climate.region;
+      state.climate = { ...state.climate, consent: 'GRANTED', region, source: 'LOCATION', locatedAt: todayIso() };
+      saveState(state);
+      render();
+      if (!silent || changed) {
+        toast(`地域を「${CLIMATE_REGIONS[region].label}」にしました。いまは${CLIMATE_ADJ[climateOn(todayIso())]}時期です`);
+      }
+    }, (error) => {
+      /* 端末の側で断られたら、同意も取り下げとして扱う。何度も聞かない */
+      if (error && error.code === 1) {
+        state.climate = { ...state.climate, consent: 'DENIED' };
+        saveState(state);
+        render();
+      }
+      if (!silent) toast('位置情報を取得できませんでした。設定から地域を選べます');
+    }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 24 * 60 * 60 * 1000 });
+  }
+
+  /**
+   * いまの季節と地域で、置き場所を変えたほうがいい食材。
+   * 夏になればたまねぎは常温より野菜室、のように、季節が変わると提案も変わる。
+   */
+  function placementSuggestions() {
+    return state.items
+      .map((item) => {
+        const kind = kindFor(item);
+        if (!kind) return null;
+        const here = estimateDaysFor(item, kind);
+        let best = bestStorageFor(item);
+        let reason = storageTipFor(item);
+        /**
+         * 食品ごとのおすすめが無くても、いまの場所ではすぐ傷んでしまうもの
+         * （肉を常温に置いた、暑い時期に卵を常温に置いたなど）は、いつもの置き場所を勧める。
+         */
+        if (!best) {
+          const usual = CATEGORY_STORAGE[item.category];
+          const usualDays = usual ? estimateDaysFor(item, usual) : null;
+          const poor = here !== null && usualDays > 0 && (here === 0 || (here <= 2 && usualDays >= here * 3));
+          if (!usual || usual === kind || !poor) return null;
+          best = usual;
+          reason = here === 0
+            ? `${STORAGE_LABELS[kind]}には向きません。`
+            : `${STORAGE_LABELS[kind]}だと目安が${here}日と短くなります。`;
+        }
+        if (best === kind) return null;
+        /* 移すと目安が短くなる提案はしない。長持ちさせるための提案なので */
+        const there = estimateDaysFor(item, best);
+        if (here !== null && there !== null && there < here) return null;
+        const target = firstCompartmentOfKind(state.layout, best);
+        return target ? { item, kind, best, target, reason, here } : null;
+      })
+      .filter(Boolean)
+      /* いまの場所ですぐ傷むものから先に見せる */
+      .sort((a, b) => (a.here === null ? 999 : a.here) - (b.here === null ? 999 : b.here));
+  }
+
+  function placementAdvice(today) {
+    const list = placementSuggestions();
+    if (list.length === 0) return '';
+    const climate = climateOn(today);
+    const lead = state.climate.mode === 'AUTO'
+      ? `${CLIMATE_REGIONS[state.climate.region].label}はいま${CLIMATE_ADJ[climate]}時期です。`
+      : '';
+    return `
+      <section class="advice">
+        <span class="advice-head">置き場所の提案 <b>${list.length}</b>件</span>
+        <span class="advice-body">${lead}次の食材は、別の場所のほうが長持ちしやすいです。</span>
+        <ul class="advice-list">
+          ${list.slice(0, 4).map((x) => `
+            <li class="advice-row">
+              ${x.item.icon ? `<span class="advice-icon" aria-hidden="true">${x.item.icon}</span>` : ''}
+              <span class="advice-main">
+                <span class="advice-name">${esc(x.item.name)}</span>
+                <span class="advice-why">${STORAGE_LABELS[x.kind]} → <b>${STORAGE_LABELS[x.best]}</b>${x.reason ? `・${esc(x.reason)}` : ''}</span>
+              </span>
+              <button class="mini" type="button" data-advice-move="${x.item.id}">移す</button>
+            </li>`).join('')}
+        </ul>
+        ${list.length > 4 ? `<span class="advice-why">ほか${list.length - 4}件</span>` : ''}
+        ${list.length > 1 ? `<button class="btn btn-ghost advice-all" type="button" id="advice-all">${list.length}件ともおすすめに移す</button>` : ''}
+      </section>`;
+  }
+
+  function moveToSuggested(ids) {
+    const list = placementSuggestions().filter((x) => ids.includes(x.item.id));
+    list.forEach((x) => { x.item.compartmentId = x.target; });
+    saveState(state);
+    render();
+    toast(list.length === 1
+      ? `${list[0].item.name}を${compartmentPath(state.layout, list[0].target)}に移しました`
+      : `${list.length}件をおすすめの場所に移しました`);
   }
 
   function paneFor(current, today) {
@@ -658,6 +791,18 @@
                   <option value="${key}" ${state.climate.region === key ? 'selected' : ''}>${r.label}</option>`).join('')}
               </select>
             </label>
+            ${'geolocation' in navigator ? (state.climate.consent === 'GRANTED' ? `
+              <p class="hint">${state.climate.source === 'LOCATION' && state.climate.locatedAt
+                ? `位置情報から決めました（${formatDate(state.climate.locatedAt)}）。月に一度、開いたときに決め直します。`
+                : '位置情報を使う設定です。地域を自分で選ぶと、そちらを優先します。'}
+                位置は地域を決めるのに使うだけで、保存も送信もしません。</p>
+              <div class="settings-actions">
+                <button class="btn btn-ghost" type="button" id="location-again">位置情報で決め直す</button>
+                <button class="btn btn-ghost" type="button" id="location-stop">位置情報を使わない</button>
+              </div>` : `
+              <div class="settings-actions">
+                <button class="btn btn-ghost" type="button" id="location-again">位置情報で地域を決める</button>
+              </div>`) : ''}
             <p class="hint">いまは<b>${CLIMATE_ADJ[climateOn(todayIso())]}時期</b>として見ています。
               暑い時期は常温の野菜・果物・パン・卵を短めに、涼しい時期は丸ごとの白菜や大根、いも類を長めに見ます。
               暖房の効いた部屋など季節どおりでないときは、「暑い」「ふつう」「涼しい」から選んでください。</p>` : `
@@ -2146,6 +2291,40 @@
       });
     });
 
+    const locationYes = root.querySelector('#location-yes');
+    if (locationYes) {
+      locationYes.addEventListener('click', () => {
+        state.climate = { ...state.climate, consent: 'GRANTED' };
+        saveState(state);
+        render();
+        locateRegion(false);
+      });
+    }
+    const locationNo = root.querySelector('#location-no');
+    if (locationNo) {
+      locationNo.addEventListener('click', () => {
+        state.climate = { ...state.climate, consent: 'DENIED' };
+        saveState(state);
+        render();
+        toast('位置情報は使いません。地域は設定の「部屋の暑さ」から選べます');
+      });
+    }
+    const relocate = root.querySelector('#location-again');
+    if (relocate) relocate.addEventListener('click', () => locateRegion(false));
+    const stopLocation = root.querySelector('#location-stop');
+    if (stopLocation) {
+      stopLocation.addEventListener('click', () => {
+        state.climate = { ...state.climate, consent: 'DENIED', source: 'MANUAL' };
+        saveState(state);
+        render();
+      });
+    }
+    root.querySelectorAll('[data-advice-move]').forEach((el) => {
+      el.addEventListener('click', () => moveToSuggested([el.dataset.adviceMove]));
+    });
+    const adviceAll = root.querySelector('#advice-all');
+    if (adviceAll) adviceAll.addEventListener('click', () => moveToSuggested(placementSuggestions().map((x) => x.item.id)));
+
     root.querySelectorAll('[data-climate-mode]').forEach((el) => {
       el.addEventListener('click', () => {
         state.climate.mode = el.dataset.climateMode;
@@ -2157,6 +2336,8 @@
     if (region) {
       region.addEventListener('change', () => {
         state.climate.region = region.value;
+        /* 自分で選んだ地域は、起動時の位置情報での決め直しで上書きしない */
+        state.climate.source = 'MANUAL';
         saveState(state);
         render();
       });
