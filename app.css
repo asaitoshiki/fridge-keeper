@@ -2527,3 +2527,20 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 .advice-why b { color: var(--accent); }
 .advice-row .mini { flex: 0 0 auto; }
 .advice-all { margin-top: 2px; }
+
+/* 食材の状態と包み方。押すとその場で目安が変わる */
+.state-row { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+.state-label { font-size: 12px; font-weight: 700; color: var(--ink-3); letter-spacing: .04em; }
+.state-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.state-chip {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.state-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

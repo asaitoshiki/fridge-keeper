@@ -305,6 +305,12 @@ function normalize(parsed) {
     if (item.notifyTime === undefined) item.notifyTime = null;
     /* 開けた日。null なら開ける前（または分からない） */
     if (item.openedAt === undefined) item.openedAt = null;
+    /* 野菜・果物の包み方。true=ラップ・袋 / false=むき出し / null=分からない（包んである扱い） */
+    if (item.wrapped === undefined) item.wrapped = null;
+    /* 状態（切った・開けた・加熱した・解凍した）。持たなかった頃のデータは開けた日から読み替える */
+    if (!CONDITION_LABELS[item.condition]) item.condition = conditionOf(item);
+    /* 自分で冷凍した日。冷凍庫での目安はこの日から数える */
+    if (item.frozenAt === undefined) item.frozenAt = null;
   });
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
   if (!state.startedAt) state.startedAt = todayIso();
@@ -416,6 +422,33 @@ function findCompartment(layout, compartmentId) {
 
 function findUnitOf(layout, compartmentId) {
   return layout.find((u) => u.compartments.some((c) => c.id === compartmentId)) || null;
+}
+
+/**
+ * 食材を別の段へ移す。食材の置き場所はここ以外で書き換えない。
+ *
+ * 温度帯をまたぐときは状態も変える。冷凍庫へ入れたら冷凍した日を記し（冷凍庫での目安はその日から）、
+ * 冷凍庫から出したら解凍したものとして、その日から数え直す。
+ * 戻り値は状態を変えたときだけ 'FROZEN' か 'THAWED'。知らせの文言に使う。
+ */
+function relocateItem(layout, item, compartmentId) {
+  const before = kindOf(layout, item);
+  item.compartmentId = compartmentId || null;
+  const after = kindOf(layout, item);
+  if (before === after || !after) return null;
+
+  const today = todayIso();
+  if (after === 'FREEZER') {
+    item.frozenAt = today;
+    return 'FROZEN';
+  }
+  if (before === 'FREEZER') {
+    /* 加熱したものを解凍したときは、加熱したものとして数え直す */
+    if (conditionOf(item) !== 'COOKED') item.condition = 'THAWED';
+    item.openedAt = today;
+    return 'THAWED';
+  }
+  return null;
 }
 
 /** 収納の種類。まだどこにも入れていない食材は null（期限の目安は出さない） */

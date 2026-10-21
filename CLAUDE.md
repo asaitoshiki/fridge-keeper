@@ -119,3 +119,9 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 ビルドは GitHub Actions の「Android (web)」を手動で回す（頼まれたときだけ）。APK はリリース `apk-latest` に置かれる。
 署名の鍵（`android-web/app/debug.keystore`）は固定。変えると上書きで入れ直せず、消して入れ直すと端末の中のデータが消える。
 `android/` の Kotlin 版は別のアプリ（applicationId が違う）で、いまは更新を止めている。
+
+## 食材の状態
+
+`item.condition`（NONE / CUT / PEELED / OPENED / COOKED / THAWED）と、その状態になった日 `item.openedAt` で目安を変える。選べる状態は `conditionsFor()` が食材の種類ごとに決める。
+野菜・果物と料理は包み方（`item.wrapped`、false=むき出し）でも変わる。冷凍した日は `item.frozenAt`。
+食材の置き場所は `relocateItem()` 以外で書き換えない。冷凍庫へ入れる・出すで冷凍した日と解凍が記される。

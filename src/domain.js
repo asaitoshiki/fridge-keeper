@@ -151,6 +151,90 @@ function roomDaysFor(days, item, food, climate, hotKey, coolKey) {
   return days;
 }
 
+/* --- 野菜・果物の切り方と包み方 ----------------------------------------------- */
+
+/**
+ * 食材の状態。買ったままか、手を加えたかで日持ちが変わる。
+ * 包装品なら開けたか、野菜・果物なら丸ごとか切ったか、肉や冷凍食品なら解凍したか、
+ * どれでも加熱・調理したか。キャベツの一玉と半玉、生の鶏肉と焼いた鶏肉は別物として見る。
+ *
+ * item.condition に状態を、item.openedAt にその状態になった日を持つ（名前は昔の「開けた日」のまま）。
+ *   NONE   買ったまま（丸ごと・開けていない・生・凍ったまま）
+ *   CUT    切った（半玉・カット・使いかけ）
+ *   PEELED 皮をむいた
+ *   OPENED 開けた（包装を開けた）
+ *   COOKED 加熱・調理した（作り置き・残りもの・ゆで卵など）
+ *   THAWED 解凍した
+ */
+const CONDITION_LABELS = {
+  NONE: '買ったまま', CUT: '切った', PEELED: '皮をむいた', OPENED: '開けた', COOKED: '加熱した', THAWED: '解凍した',
+};
+/* 一覧の印に使う、状態を表す短い言葉 */
+const CONDITION_BADGES = {
+  CUT: '切ってある', PEELED: '皮をむいた', OPENED: '開封済み', COOKED: '加熱済み', THAWED: '解凍済み',
+};
+
+/** その食材で選べる状態。食材の種類ごとに、ふつう起きることだけを並べる */
+function conditionsFor(item) {
+  if (isProduce(item)) {
+    return [['NONE', '丸ごと'], ['CUT', '切った'], ['PEELED', '皮をむいた'], ['COOKED', '加熱した']];
+  }
+  switch (item.category) {
+    case 'MEAT_FISH':
+      return [['NONE', '生のまま'], ['OPENED', 'パックを開けた'], ['THAWED', '解凍した'], ['COOKED', '加熱した']];
+    case 'FROZEN':
+      return [['NONE', '凍ったまま'], ['THAWED', '解凍した'], ['COOKED', '加熱した']];
+    case 'EGG':
+      return [['NONE', '生'], ['COOKED', 'ゆでた・焼いた']];
+    case 'SEASONING':
+    case 'DRINK':
+      return [['NONE', '開けていない'], ['OPENED', '開けた']];
+    default:
+      return [['NONE', '開けていない'], ['OPENED', '開けた'], ['COOKED', '加熱・調理した']];
+  }
+}
+
+/** 状態ごとの保存のコツ。手を加えたあとは、その食品の丸ごとのときのコツより、こちらが効く */
+const CONDITION_TIPS = {
+  CUT: '切り口が乾かないよう、ラップで包むか保存袋に入れて冷蔵へ。',
+  PEELED: '皮をむいたものは乾きやすく傷みやすいので、ラップか保存袋に入れて早めに使います。',
+  OPENED: '開けたら口をしっかり閉じて冷蔵へ。',
+  COOKED: '粗熱をとってから、ふたをして冷蔵へ。食べきれない分は早めに冷凍に。',
+  THAWED: '解凍したものをもう一度凍らせると味と食感が落ちます。早めに使い切ってください。',
+};
+
+/** いまの状態。状態を持たなかった頃のデータは、開けた日があれば「開けた（野菜なら切った）」と読む */
+function conditionOf(item) {
+  if (item.condition && CONDITION_LABELS[item.condition]) return item.condition;
+  if (item.openedAt) return isProduce(item) ? 'CUT' : 'OPENED';
+  return 'NONE';
+}
+function isProduce(item) {
+  return item.category === 'VEGETABLE' || item.category === 'FRUIT';
+}
+
+/** 名前から、切って売られているものを見分ける（キャベツ半玉、カットかぼちゃ など） */
+const CUT_WORDS = ['半玉', '半分', 'ハーフ', '1/2', '1/4', '1/3', '½', '¼', 'カット', '切り身', '使いかけ', '残り'];
+function looksCut(name) {
+  return CUT_WORDS.some((word) => String(name || '').includes(word));
+}
+
+/**
+ * むき出しで冷蔵庫に入れた野菜・果物や料理は乾いて早く傷むので、目安を縮める。
+ * 丸ごとなら7割、切ったものや料理は半分。常温と冷凍は包み方で大きくは変わらないので変えない。
+ * wrapped が null（分からない）のときは、包んであるものとして見る。
+ */
+function wrapMatters(item) {
+  return isProduce(item) || conditionOf(item) === 'COOKED';
+}
+
+function wrapAdjusted(days, item, storageKind, cut) {
+  if (days === null || !wrapMatters(item) || item.wrapped !== false) return days;
+  if (storageKind !== 'FRIDGE' && storageKind !== 'VEGETABLE_DRAWER') return days;
+  const shorter = Math.floor(days * (cut ? 0.5 : 0.7));
+  return days > 0 ? Math.max(1, shorter) : 0;
+}
+
 /** カテゴリだけで引く目安日数。まだどこにも入れていない食材（kind が null）は null */
 function presetDaysFor(category, storageKind) {
   if (!storageKind) return null;
@@ -168,12 +252,45 @@ function estimateDaysFor(item, storageKind) {
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
   const own = food ? food[SHELF_KEYS[storageKind]] : undefined;
   const days = typeof own === 'number' ? own : presetDaysFor(item.category, storageKind);
-  if (days === null || storageKind !== 'ROOM_TEMP') return days;
+  if (days === null) return null;
+  if (storageKind !== 'ROOM_TEMP') return wrapAdjusted(days, item, storageKind, false);
   return roomDaysFor(days, item, food, climateOn(item.registeredAt), 'Rs', 'Rw');
 }
 
 /**
- * 開けたあとの目安日数。冷凍庫では開けても日持ちはほとんど変わらないので null（変えない）。
+ * 加熱・調理したもの（作り置き・残りもの）の冷蔵での目安。食品ごとの値（cooked）があればそちら。
+ * 常温に置いた料理は数時間で傷みやすいので、その日のうちにする。
+ */
+const COOKED_DAYS = {
+  VEGETABLE: 3, FRUIT: 2, MEAT_FISH: 3, DAIRY: 2, EGG: 2, PROCESSED: 3, FROZEN: 2,
+  SEASONING: 7, DRINK: 2, OTHER: 2,
+};
+
+/** 解凍したものの冷蔵での目安。解凍した肉や魚は、生のときより早く使い切る */
+const THAWED_DAYS = { MEAT_FISH: 1, FROZEN: 1, PROCESSED: 2, VEGETABLE: 2, FRUIT: 1, DAIRY: 2, OTHER: 1 };
+
+/**
+ * 状態が変わった日からの目安日数。冷凍庫では状態で日持ちはほとんど変わらないので null（変えない）。
+ */
+function conditionDaysFor(item, storageKind) {
+  const condition = conditionOf(item);
+  if (condition === 'NONE' || !storageKind || storageKind === 'FREEZER') return null;
+  const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+
+  if (condition === 'COOKED') {
+    if (storageKind === 'ROOM_TEMP') return 0;
+    const own = food && typeof food.cooked === 'number' ? food.cooked : null;
+    return wrapAdjusted(own !== null ? own : (COOKED_DAYS[item.category] || 2), item, storageKind, true);
+  }
+  if (condition === 'THAWED') {
+    if (storageKind === 'ROOM_TEMP') return 0;
+    return THAWED_DAYS[item.category] !== undefined ? THAWED_DAYS[item.category] : 1;
+  }
+  return openedDaysFor(item, storageKind);
+}
+
+/**
+ * 開けた・切ったあとの目安日数。
  */
 function openedDaysFor(item, storageKind) {
   if (!storageKind || storageKind === 'FREEZER') return null;
@@ -183,8 +300,10 @@ function openedDaysFor(item, storageKind) {
     if (typeof days !== 'number') return 0;
     return roomDaysFor(days, item, food, climateOn(item.openedAt), 'openRs', 'openRw');
   }
-  if (food && typeof food.open === 'number') return food.open;
-  return OPENED_DAYS[item.category] !== undefined ? OPENED_DAYS[item.category] : OPENED_DAYS.OTHER;
+  const days = food && typeof food.open === 'number'
+    ? food.open
+    : (OPENED_DAYS[item.category] !== undefined ? OPENED_DAYS[item.category] : OPENED_DAYS.OTHER);
+  return wrapAdjusted(days, item, storageKind, true);
 }
 
 /**
@@ -204,6 +323,20 @@ function placementFor(item) {
 /** その食品のおすすめの置き場所（収納の種類）。分からなければ null */
 function bestStorageFor(item) {
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
+  /**
+   * 手を加えたあとは、丸ごと・買ったままのときのおすすめは当てはまらない。
+   * 解凍したものは凍らせ直さず冷蔵、料理も冷蔵。切った野菜は野菜室、切った果物は冷蔵。
+   * 開けた包装品は、開けても常温に置けるもの（しょうゆなど）以外は冷蔵。
+   */
+  const condition = conditionOf(item);
+  if (condition === 'THAWED' || condition === 'COOKED') return 'FRIDGE';
+  if ((condition === 'CUT' || condition === 'PEELED') && isProduce(item)) {
+    return item.category === 'FRUIT' ? 'FRIDGE' : 'VEGETABLE_DRAWER';
+  }
+  if (condition === 'OPENED') {
+    if (food && typeof food.openR === 'number' && food.openR > 0 && food.best) return SHELF_KIND_OF[food.best];
+    return 'FRIDGE';
+  }
   if (!food || !food.best) return null;
   /* 暑い時期だけ置き場所を変えたほうがいいもの（たまねぎ・チョコなど） */
   if (climateOn(todayIso()) === 'HOT' && food.bestS) return SHELF_KIND_OF[food.bestS];
@@ -252,8 +385,8 @@ function formatDate(iso) {
 /* --- 実効期限 ---------------------------------------------------------- */
 
 /**
- * 実効期限 = 入力された期限、なければ 登録日 + 目安日数。
- * 開けた日があれば、開けた日 + 開けたあとの目安日数 と比べて早いほうを使う。
+ * 実効期限 = 入力された期限、なければ 登録日（冷凍庫なら冷凍した日）+ 目安日数。
+ * 状態が変わった日があれば、その日 + 状態ごとの目安日数 と比べて早いほうを使う。
  * 印字の期限は開ける前の話なので、開けたら印字より前に来ることが多い（牛乳など）。
  * 推定値は保存せず参照のたびにここで導出する。収納を移せば目安も変わる。
  * 戻り値 date が null なら期限なし扱い（アラート対象外）。opened は開けたあとの目安を使ったか。
@@ -265,14 +398,25 @@ function effectiveExpiry(item, storageKind) {
 
   if (!date) {
     const days = estimateDaysFor(item, storageKind);
-    if (days !== null) date = addDays(item.registeredAt, days);
+    /* 自分で冷凍したものは、冷凍した日から数える */
+    const from = storageKind === 'FREEZER' && item.frozenAt && item.frozenAt > item.registeredAt
+      ? item.frozenAt
+      : item.registeredAt;
+    if (days !== null) date = addDays(from, days);
   }
 
-  if (item.openedAt) {
-    const days = openedDaysFor(item, storageKind);
+  const condition = conditionOf(item);
+  if (item.openedAt && condition !== 'NONE') {
+    const days = conditionDaysFor(item, storageKind);
     if (days !== null) {
       const afterOpen = addDays(item.openedAt, days);
-      if (!date || afterOpen < date) {
+      /**
+       * 解凍した・加熱したものは、買った日からの目安はもう当てにならない。その日から数え直す。
+       * 一か月冷凍していたうどんを今日解凍しても、買った日から数えると切れていることになってしまう。
+       * 印字の期限があるときだけは、そちらのほうが早ければそちらを使う。
+       */
+      const restart = (condition === 'COOKED' || condition === 'THAWED') && !item.expiryDate;
+      if (restart || !date || afterOpen < date) {
         date = afterOpen;
         estimated = true;
         opened = true;

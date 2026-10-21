@@ -292,20 +292,27 @@
    * 夏になればたまねぎは常温より野菜室、のように、季節が変わると提案も変わる。
    */
   function placementSuggestions() {
+    const today = todayIso();
+    /* その場所に置いたときの残り日数。切った・開けたなどの状態も含めて比べる */
+    const daysAt = (item, kind) => {
+      const { date } = effectiveExpiry(item, kind);
+      return date ? diffDays(today, date) : null;
+    };
     return state.items
       .map((item) => {
         const kind = kindFor(item);
         if (!kind) return null;
-        const here = estimateDaysFor(item, kind);
+        const here = daysAt(item, kind);
         let best = bestStorageFor(item);
-        let reason = storageTipFor(item);
+        const condition = conditionOf(item);
+        let reason = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
         /**
          * 食品ごとのおすすめが無くても、いまの場所ではすぐ傷んでしまうもの
          * （肉を常温に置いた、暑い時期に卵を常温に置いたなど）は、いつもの置き場所を勧める。
          */
         if (!best) {
           const usual = CATEGORY_STORAGE[item.category];
-          const usualDays = usual ? estimateDaysFor(item, usual) : null;
+          const usualDays = usual ? daysAt(item, usual) : null;
           const poor = here !== null && usualDays > 0 && (here === 0 || (here <= 2 && usualDays >= here * 3));
           if (!usual || usual === kind || !poor) return null;
           best = usual;
@@ -315,7 +322,7 @@
         }
         if (best === kind) return null;
         /* 移すと目安が短くなる提案はしない。長持ちさせるための提案なので */
-        const there = estimateDaysFor(item, best);
+        const there = daysAt(item, best);
         if (here !== null && there !== null && there < here) return null;
         const target = firstCompartmentOfKind(state.layout, best);
         return target ? { item, kind, best, target, reason, here } : null;
@@ -354,7 +361,7 @@
 
   function moveToSuggested(ids) {
     const list = placementSuggestions().filter((x) => ids.includes(x.item.id));
-    list.forEach((x) => { x.item.compartmentId = x.target; });
+    list.forEach((x) => { relocateItem(state.layout, x.item, x.target); });
     saveState(state);
     render();
     toast(list.length === 1
@@ -445,7 +452,8 @@
     const u = urgencyOf(item, kindFor(item), today);
     const badges = [
       u.estimated && u.date ? '<span class="badge badge-estimate">目安</span>' : '',
-      item.openedAt ? '<span class="badge badge-opened">開封済み</span>' : '',
+      CONDITION_BADGES[conditionOf(item)] ? `<span class="badge badge-opened">${CONDITION_BADGES[conditionOf(item)]}</span>` : '',
+      wrapMatters(item) && item.wrapped === false ? '<span class="badge badge-opened">むき出し</span>' : '',
       item.expiryType === 'USE_BY' ? '<span class="badge badge-useby">消費期限</span>' : '',
     ].join('');
 
@@ -1484,8 +1492,11 @@
 
   /** 収納を移すと、期限を入力していない食材の目安日数も変わる */
   function moveItem(itemId, compartmentId) {
-    state.items.find((i) => i.id === itemId).compartmentId = compartmentId;
+    const item = state.items.find((i) => i.id === itemId);
+    const changed = relocateItem(state.layout, item, compartmentId);
     commit();
+    if (changed === 'THAWED') toast(`${item.name}を冷凍庫から出したので、解凍したものとして目安を出します`);
+    else if (changed === 'FROZEN' && item.category !== 'FROZEN') toast(`${item.name}を冷凍しました。目安は今日から数えます`);
   }
 
   /** keepFocus: 名前の入力中に再描画でフォーカスを奪わないための逃げ道 */
@@ -1597,7 +1608,14 @@
       memo: null,
       notifyDaysBefore: null,
       notifyTime: null,
+      /* 「キャベツ半玉」のように打ったら、切ってあるものとして買った日から数える */
+      condition: looksCut(name) && isProduce({ category: preset ? preset.category : guessCategoryByName(name) }) ? 'CUT' : 'NONE',
+      openedAt: null,
+      wrapped: null,
+      frozenAt: null,
     });
+    const added = state.items[state.items.length - 1];
+    if (added.condition === 'CUT') added.openedAt = todayIso();
     rememberTemplate(name);
     saveState(state);
     render();
@@ -1760,26 +1778,6 @@
     commit();
   }
 
-  /**
-   * 開けた・使いかけの印。印を付けると、開けた日からの目安と印字の期限の早いほうを使う。
-   * 牛乳の印字が10日先でも、開けたら2〜3日で飲みきるのが目安になる。
-   */
-  function toggleOpened(id) {
-    const item = findItem(id);
-    if (!item) return;
-    item.openedAt = item.openedAt ? null : todayIso();
-    saveState(state);
-    render();
-    if (!item.openedAt) {
-      toast(`${item.name}の開けた印を消しました`);
-      return;
-    }
-    const u = urgencyOf(item, kindFor(item), todayIso());
-    toast(u.date
-      ? `${item.name}を開けた日にしました。${formatDate(u.date)}まで（目安）`
-      : `${item.name}を開けた日にしました`);
-  }
-
   /** おすすめの置き場所へ入れる。買ってきたものを一つずつ運ばずに済むようにする */
   function placeAtBest(id) {
     const item = findItem(id);
@@ -1789,7 +1787,7 @@
     const goal = kind ? (best && kind !== best ? best : null) : placementFor(item);
     const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
     if (!target) return;
-    item.compartmentId = target;
+    relocateItem(state.layout, item, target);
     saveState(state);
     render();
     toast(`${item.name}を${compartmentPath(state.layout, target)}に入れました`);
@@ -1806,7 +1804,7 @@
       const goal = placementFor(item);
       const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
       if (!target) return;
-      item.compartmentId = target;
+      relocateItem(state.layout, item, target);
       placed += 1;
     });
     saveState(state);
@@ -1900,13 +1898,34 @@
         </div>
         <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
         <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
-        <button class="action-btn action-plain" type="button" data-act="open">
-          <b id="open-label">開けた・使いかけ</b><span id="open-sub">開けたあとの目安に切り替えます</span>
-        </button>
+        <div class="state-row">
+          <span class="state-label">いまの状態</span>
+          <div class="state-chips" id="state-chips"></div>
+        </div>
+        <div class="state-row" id="wrap-row">
+          <span class="state-label">包み方</span>
+          <div class="state-chips">
+            <button class="state-chip" type="button" data-wrap="on">ラップ・袋・容器</button>
+            <button class="state-chip" type="button" data-wrap="off">むき出し</button>
+          </div>
+        </div>
         <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
         <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
         <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
       </div>`;
+
+    /* 状態と包み方。選ぶとその場で目安が変わるので、シートは閉じずに中身だけ描き直す */
+    el.addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-condition], [data-wrap]');
+      if (!chip || Date.now() - Number(el.dataset.openedAt || 0) < 450) return;
+      const item = findItem(el.dataset.itemId);
+      if (!item) return;
+      if (chip.dataset.condition) setCondition(item, chip.dataset.condition);
+      else item.wrapped = chip.dataset.wrap === 'on';
+      saveState(state);
+      render();
+      fillActions(item);
+    });
 
     /* 食べた数。1から在庫の数まで。全部にすれば「食べきった」と同じになる */
     el.querySelectorAll('[data-eat-step]').forEach((button) => {
@@ -1934,7 +1953,6 @@
         else if (button.dataset.act === 'discard') discardItem(id);
         else if (button.dataset.act === 'edit') openEditor(id);
         else if (button.dataset.act === 'delete') deleteItem(id);
-        else if (button.dataset.act === 'open') toggleOpened(id);
         else if (button.dataset.act === 'place') placeAtBest(id);
       });
     });
@@ -1953,19 +1971,28 @@
   function openActions(id) {
     const item = findItem(id);
     if (!item) return;
-    const u = urgencyOf(item, kindFor(item), todayIso());
-
     actionDialog.dataset.itemId = id;
+    setEatCount(1, item.quantity);
+    fillActions(item);
+    actionDialog.dataset.openedAt = String(Date.now());
+    actionDialog.showModal();
+  }
+
+  /** シートの中身。状態を選び直したときにも、開いたまま描き直す */
+  function fillActions(item) {
+    const u = urgencyOf(item, kindFor(item), todayIso());
+    const condition = conditionOf(item);
     actionDialog.querySelector('#action-title').textContent =
       item.quantity > 1 ? `${item.name}（${item.quantity}）` : item.name;
     actionDialog.querySelector('#action-sub').textContent =
       `${compartmentPath(state.layout, item.compartmentId)}・${remainingLabel(u.days)}${u.estimated && u.date ? '（目安）' : ''}`
-      + (item.openedAt ? `・${formatDate(item.openedAt)}に開けた` : '');
+      + (condition !== 'NONE' && item.openedAt ? `・${formatDate(item.openedAt)}に${CONDITION_LABELS[condition]}` : '');
 
     /* 置き場所の助言。いまの場所がおすすめと違うときだけ、おすすめを先に言う */
     const kind = kindFor(item);
     const best = bestStorageFor(item);
-    const tip = storageTipFor(item);
+    /* 手を加えたあとは、丸ごとのときのコツより状態ごとのコツを出す */
+    const tip = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
     const lines = [];
     if (best && kind && kind !== best) lines.push(`<b>${STORAGE_LABELS[best]}がおすすめです。</b>`);
     if (tip) lines.push(esc(tip));
@@ -1988,14 +2015,23 @@
         + (goalDays !== null && !item.expiryDate ? `。目安は${goalDays}日` : '');
     }
 
-    actionDialog.querySelector('#open-label').textContent = item.openedAt ? '開けていない' : '開けた・使いかけ';
-    actionDialog.querySelector('#open-sub').textContent = item.openedAt
-      ? `${formatDate(item.openedAt)}に開けた印を消して、開ける前の目安に戻します`
-      : '開けたあとの目安に切り替えます';
+    /* 状態は食材の種類ごとに、ふつう起きるものだけを出す */
+    actionDialog.querySelector('#state-chips').innerHTML = conditionsFor(item).map(([key, label]) => `
+      <button class="state-chip" type="button" data-condition="${key}" aria-pressed="${condition === key}">${label}</button>`).join('');
+    /* 包み方は、冷蔵庫に入れた野菜・果物と料理だけで効く */
+    const wrapRow = actionDialog.querySelector('#wrap-row');
+    wrapRow.hidden = !(wrapMatters(item) && (kind === 'FRIDGE' || kind === 'VEGETABLE_DRAWER'));
+    wrapRow.querySelector('[data-wrap="on"]').setAttribute('aria-pressed', String(item.wrapped !== false));
+    wrapRow.querySelector('[data-wrap="off"]').setAttribute('aria-pressed', String(item.wrapped === false));
+
     actionDialog.querySelector('#eat-row').hidden = item.quantity <= 1;
-    setEatCount(1, item.quantity);
-    actionDialog.dataset.openedAt = String(Date.now());
-    actionDialog.showModal();
+  }
+
+  /** 状態を変える。買ったままに戻すときは日付も消す。同じ状態を選び直しても日付は変えない */
+  function setCondition(item, condition) {
+    if (condition === conditionOf(item)) return;
+    item.condition = condition;
+    item.openedAt = condition === 'NONE' ? null : todayIso();
   }
 
   /* --- 設定 --------------------------------------------------------------- */
@@ -2080,6 +2116,20 @@
 
         <div class="field-pair">
           <div class="field">
+            <label for="f-condition">状態</label>
+            <select id="f-condition" name="condition"></select>
+          </div>
+          <div class="field" id="f-wrap-field">
+            <label for="f-wrap">包み方</label>
+            <select id="f-wrap" name="wrapped">
+              <option value="on">ラップ・袋・容器</option>
+              <option value="off">むき出し</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-pair">
+          <div class="field">
             <label for="f-type">期限の種別</label>
             <select id="f-type" name="expiryType">
               <option value="BEST_BEFORE">賞味期限</option>
@@ -2147,8 +2197,19 @@
     el.querySelector('#scan-expiry').addEventListener('click', () => {
       openScan('expiry', (result) => applyExpiry(result.expiry));
     });
-    ['f-category', 'f-place', 'f-date'].forEach((id) => {
+    ['f-category', 'f-place', 'f-date', 'f-condition', 'f-wrap'].forEach((id) => {
       el.querySelector(`#${id}`).addEventListener('change', updateHint);
+    });
+    /* カテゴリで選べる状態が変わる（野菜なら丸ごと・切った、牛乳なら開けた） */
+    el.querySelector('#f-category').addEventListener('change', () => fillConditions(el.querySelector('#f-condition').value));
+    /* 「キャベツ半玉」のように打ったら、切ってあるものとして始める */
+    el.querySelector('#f-name').addEventListener('input', () => {
+      const cond = el.querySelector('#f-condition');
+      const name = el.querySelector('#f-name').value;
+      if (!editingId && looksCut(name) && isProduce({ category: el.querySelector('#f-category').value }) && cond.value === 'NONE') {
+        cond.value = 'CUT';
+        updateHint();
+      }
     });
     /* 名前でおすすめの置き場所と目安が変わるので、打つたびに出し直す */
     el.querySelector('#f-name').addEventListener('input', updateHint);
@@ -2179,6 +2240,8 @@
     dialog.querySelector('#f-quantity').value = item ? item.quantity : 1;
     dialog.querySelector('#f-date').value = item && item.expiryDate ? item.expiryDate : '';
     dialog.querySelector('#f-memo').value = item && item.memo ? item.memo : '';
+    fillConditions(item ? conditionOf(item) : 'NONE');
+    dialog.querySelector('#f-wrap').value = item && item.wrapped === false ? 'off' : 'on';
     dialog.querySelector('#f-jan').value = item && item.janCode ? item.janCode : '';
     /* 既定と同じなら空にしておく。わざわざこの食材だけ変えた、が見て分かるようにする */
     dialog.querySelector('#f-notify-days').value = notifyDaysValue(item);
@@ -2190,42 +2253,72 @@
     dialog.querySelector('#f-name').focus();
   }
 
+  /** 状態の選択肢を、いまのカテゴリに合わせて作り直す。選べない状態だったら「買ったまま」に戻す */
+  function fillConditions(current) {
+    const select = dialog.querySelector('#f-condition');
+    const options = conditionsFor({ category: dialog.querySelector('#f-category').value });
+    select.innerHTML = options.map(([key, label]) => `<option value="${key}">${label}</option>`).join('');
+    select.value = options.some(([key]) => key === current) ? current : 'NONE';
+    updateHint();
+  }
+
+  /** 登録画面でいま選んでいる内容を、食材の形にしたもの。目安の計算に使う */
+  function editorProbe() {
+    const existing = editingId ? state.items.find((i) => i.id === editingId) : null;
+    const condition = dialog.querySelector('#f-condition').value || 'NONE';
+    const sameCondition = existing && conditionOf(existing) === condition;
+    return {
+      name: dialog.querySelector('#f-name').value.trim(),
+      category: dialog.querySelector('#f-category').value,
+      registeredAt: existing ? existing.registeredAt : todayIso(),
+      expiryDate: dialog.querySelector('#f-date').value || null,
+      condition,
+      openedAt: condition === 'NONE' ? null : (sameCondition && existing.openedAt ? existing.openedAt : todayIso()),
+      wrapped: dialog.querySelector('#f-wrap').value !== 'off',
+      frozenAt: existing ? existing.frozenAt : null,
+    };
+  }
+
   /**
    * 期限日が空のときに、プリセットから導いた目安をその場で見せる。
    * 「入力しなくても管理される」ことが伝わらないと、期限入力が実質必須になってしまうため。
    */
   function updateHint() {
     const hint = dialog.querySelector('#f-hint');
-    const date = dialog.querySelector('#f-date').value;
+    const probe = editorProbe();
+    const compartment = findCompartment(state.layout, dialog.querySelector('#f-place').value);
+    const kind = compartment ? compartment.kind : null;
+    const condition = probe.condition;
 
-    if (date) {
-      hint.textContent = '入力された期限日を使います。';
-      return;
-    }
+    /* 包み方は、野菜・果物と料理のときだけ聞く */
+    dialog.querySelector('#f-wrap-field').hidden = !wrapMatters(probe);
 
-    const category = dialog.querySelector('#f-category').value;
-    const compartmentId = dialog.querySelector('#f-place').value;
-    const compartment = findCompartment(state.layout, compartmentId);
-    const name = dialog.querySelector('#f-name').value.trim();
-    const probe = { name, category };
-    const days = estimateDaysFor(probe, compartment ? compartment.kind : null);
-    const base = editingId ? state.items.find((i) => i.id === editingId).registeredAt : todayIso();
     const best = bestStorageFor(probe);
-    const advice = best && (!compartment || compartment.kind !== best)
-      ? `<br>${esc(name)}は<b>${STORAGE_LABELS[best]}</b>がおすすめです。`
+    const advice = best && kind !== best
+      ? `<br>${esc(probe.name)}は<b>${STORAGE_LABELS[best]}</b>がおすすめです。`
       : '';
 
     if (!compartment) {
       hint.innerHTML = `まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。${advice}`;
       return;
     }
-    if (days === null) {
-      hint.innerHTML = `${CATEGORY_LABELS[category]}を${STORAGE_LABELS[compartment.kind]}で保管する場合の目安がないため、<b>期限なし</b>として扱います。`;
+
+    const { date, estimated } = effectiveExpiry(probe, kind);
+    if (date === null) {
+      hint.innerHTML = `${CATEGORY_LABELS[probe.category]}を${STORAGE_LABELS[kind]}で保管する場合の目安がないため、<b>期限なし</b>として扱います。`;
       return;
     }
-    hint.innerHTML = days === 0
-      ? `${STORAGE_LABELS[compartment.kind]}には向かないため、<b>その日のうち</b>（目安）として表示します。${advice}`
-      : `期限を空にすると、目安の <b>${days}日</b> を使って <b>${formatDate(addDays(base, days))}</b> まで（目安）として表示します。${advice}`;
+    if (!estimated) {
+      hint.textContent = '入力された期限日を使います。';
+      return;
+    }
+    const left = diffDays(todayIso(), date);
+    const why = condition !== 'NONE'
+      ? `${CONDITION_LABELS[condition]}ものとして、`
+      : (probe.expiryDate ? '' : '期限を空にすると、');
+    hint.innerHTML = left <= 0 && condition === 'NONE' && !probe.expiryDate
+      ? `${STORAGE_LABELS[kind]}には向かないため、<b>その日のうち</b>（目安）として表示します。${advice}`
+      : `${why}目安で <b>${formatDate(date)}</b> まで（あと${Math.max(0, left)}日）として表示します。${advice}`;
   }
 
   function onSubmit(event) {
@@ -2247,6 +2340,11 @@
       notifyDaysBefore: parseNotifyDays(f.notifyDaysBefore.value),
       notifyTime: f.notifyTime.value || null,
     };
+    /* 状態と、その状態になった日。状態を変えていなければ日付はそのまま */
+    const probe = editorProbe();
+    values.condition = probe.condition;
+    values.openedAt = probe.openedAt;
+    values.wrapped = wrapMatters(probe) ? probe.wrapped : null;
     if (!existingItem(editingId)) values.icon = iconForName(name);
 
     /* 読ませたバーコードと名前の組を覚える。次に同じ商品を買ったとき手で打たずに済む */
@@ -2256,7 +2354,10 @@
 
     const existing = editingId ? state.items.find((i) => i.id === editingId) : null;
     if (existing) {
-      Object.assign(existing, values);
+      /* 置き場所は relocateItem を通す。冷凍庫に入れた・出したことで状態が変わるため */
+      const { compartmentId, ...rest } = values;
+      Object.assign(existing, rest);
+      if (compartmentId !== existing.compartmentId) relocateItem(state.layout, existing, compartmentId);
     } else {
       state.items.push({ id: newId('item'), registeredAt: todayIso(), ...values });
       rememberTemplate(values.name);
