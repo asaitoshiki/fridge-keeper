@@ -2577,3 +2577,49 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   cursor: pointer;
 }
 .state-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* 開いた直後は、指を離したあとのタップを受けない */
+#actions.is-opening .sheet-form { pointer-events: none; }
+
+/* シートの中の期限。編集の画面へ行かずに入れる */
+.expiry-row { display: flex; flex-direction: column; gap: 6px; }
+.expiry-inputs { display: flex; gap: 6px; align-items: center; }
+.expiry-inputs select { flex: 0 0 auto; min-height: 40px; }
+.expiry-inputs input[type="date"] { flex: 1 1 auto; min-width: 0; min-height: 40px; }
+.link-btn {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* 部屋の温度と、段ごとの温度 */
+.room-now { margin: 4px 0 0; font-size: 14px; color: var(--ink-2); }
+.room-now b { font-size: 22px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.room-manual { display: flex; align-items: center; gap: 12px; }
+.room-manual input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); min-height: 40px; }
+.temp-list { display: flex; flex-direction: column; gap: 12px; }
+.temp-unit { display: flex; flex-direction: column; gap: 4px; }
+.temp-unit-name { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.temp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+.temp-name { font-size: 14px; color: var(--ink); }
+.temp-name em { font-style: normal; font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+.temp-input { display: flex; align-items: center; gap: 4px; }
+.temp-input input { width: 84px; min-height: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.temp-input i { font-style: normal; color: var(--ink-3); }
+
+/* シートの中身が画面より長いときは、縮めずにスクロールさせる。縮めるとボタンの文字が切れる */
+.sheet-form > * { flex-shrink: 0; }
+
+/* シートと設定の小さな入力欄も、登録画面と同じ見た目にそろえる */
+.expiry-inputs select, .expiry-inputs input, .temp-input input {
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 15px;
+}

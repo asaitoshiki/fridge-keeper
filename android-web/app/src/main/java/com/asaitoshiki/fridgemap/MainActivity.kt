@@ -40,7 +40,7 @@ import androidx.webkit.WebViewAssetLoader
  * - 戻るボタンで、開いている画面を閉じる
  *
  * ページは https://appassets.androidplatform.net/ という端末の中だけの住所で開く。
- * 外のサイトへは出ていかない（INTERNET の権限も持たない）。
+ * 外のサイトへ画面が移ることはない。外とやりとりするのは、同意をもらったときの天気予報の取得だけ。
  */
 class MainActivity : ComponentActivity() {
 

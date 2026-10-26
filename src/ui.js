@@ -25,8 +25,6 @@
   let query = '';
   /* レポートで見る期間（日数） */
   let reportDays = 30;
-  /* 「暑い時期」「ふつうの時期」のように、名詞の前に付ける形 */
-  const CLIMATE_ADJ = { HOT: '暑い', MILD: 'ふつうの', COOL: '涼しい' };
   /* 履歴の絞り込み。ALL / EATEN / DISCARDED / DELETED */
   let historyFilter = 'ALL';
   let editingId = null;
@@ -69,17 +67,26 @@
   applyTheme();
   render();
 
-  /* 同意をもらっていれば、月に一度だけ地域を決め直す。引っ越しや長い旅先でもずれないように */
-  if (state.climate.consent === 'GRANTED' && state.climate.source === 'LOCATION' && state.climate.mode === 'AUTO'
-    && (!state.climate.locatedAt || diffDays(state.climate.locatedAt, todayIso()) >= 30)) {
-    locateRegion(true);
+  /**
+   * 天気予報を使う同意があれば、開いたときに気温を取り直す（3時間に一度まで）。
+   * 天気予報を使わず位置情報だけなら、月に一度だけ地域を決め直す。
+   */
+  if (state.climate.mode === 'AUTO') {
+    const weather = state.climate.weather;
+    if (weather.consent === 'GRANTED') {
+      if (!weather.fetchedAt || Date.now() - Date.parse(weather.fetchedAt) > 3 * 60 * 60 * 1000) fetchWeather(true);
+    } else if (state.climate.consent === 'GRANTED' && state.climate.source === 'LOCATION'
+      && (!state.climate.locatedAt || diffDays(state.climate.locatedAt, todayIso()) >= 30)) {
+      locateRegion(true);
+    }
   }
 
   /* --- 描画 ------------------------------------------------------------ */
 
   function render() {
-    /* 部屋の暑さは目安の計算すべてに効くので、描く前に毎回渡しておく */
-    setClimate(state.climate);
+    /* 部屋と段の温度は目安の計算すべてに効くので、描く前に毎回渡しておく */
+    setCompartmentTemps(state.layout);
+    setRoomTemp(roomInfo().room);
     const today = todayIso();
     /**
      * 描き直しでは中身を丸ごと入れ替えるので、何もしないと先頭へ飛ぶ。
@@ -240,20 +247,41 @@
   /* --- 季節と地域に合わせた保存の提案 ------------------------------------------ */
 
   /**
-   * 位置情報を使ってよいかを一度だけ聞く。画面をふさがないよう、冷蔵庫の上にカードで出す。
-   * 位置からは地域（北海道〜沖縄）だけを決め、緯度経度は保存も送信もしない。
+   * いまの部屋の温度。自分で決めていればその値、自動なら外の気温から見積もる。
+   * 外の気温は、天気予報が取れていればそれ（取ってから1日まで）、無ければ地域とその月の平年の気温。
+   */
+  function roomInfo() {
+    const climate = state.climate;
+    if (climate.mode === 'MANUAL') return { room: climate.manualTemp, source: 'MANUAL' };
+    const weather = climate.weather;
+    const fresh = weather.consent === 'GRANTED' && Number.isFinite(weather.outdoor) && weather.fetchedAt
+      && Date.now() - Date.parse(weather.fetchedAt) < 24 * 60 * 60 * 1000;
+    const outdoor = fresh ? weather.outdoor : normalTempFor(climate.region, todayIso());
+    return { room: roomTempFromOutdoor(outdoor), outdoor, source: fresh ? 'WEATHER' : 'NORMAL', at: fresh ? weather.fetchedAt : null };
+  }
+
+  /** 「10月26日 9:12」の形 */
+  function formatStamp(iso) {
+    const d = new Date(iso);
+    return `${formatDate(toIso(d))} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  /**
+   * 天気予報と位置情報を使ってよいかを一度だけ聞く。画面をふさがないよう、冷蔵庫の上にカードで出す。
+   * 天気予報のサービスには、約10kmに丸めた位置だけを送る。食材のことは何も送らない。
    */
   function locationAsk() {
-    if (state.climate.consent !== null || state.climate.mode !== 'AUTO') return '';
+    if (state.climate.mode !== 'AUTO' || state.climate.weather.consent !== null) return '';
     if (!('geolocation' in navigator)) return '';
     return `
       <section class="advice advice-ask">
-        <span class="advice-head">季節と地域に合わせて、保存方法を提案します</span>
-        <span class="advice-body">位置情報から住んでいる地域（北海道〜沖縄など）を判断し、今の時期に合ったおすすめの置き場所を出します。
-          位置は地域を決めるのに使うだけで、保存も送信もしません。</span>
+        <span class="advice-head">気温に合わせて、保存方法を提案します</span>
+        <span class="advice-body">天気予報の気温から部屋の温度を見積もり、常温に置いた食材の目安とおすすめの置き場所を出します。
+          そのために、おおよその位置（約10km単位）を天気予報のサービス（Open-Meteo）に送ります。
+          食材の情報は送りません。位置はこの端末にも残しません。</span>
         <div class="advice-actions">
-          <button class="btn btn-primary" type="button" id="location-yes">位置情報を使う</button>
-          <button class="btn btn-ghost" type="button" id="location-no">使わない</button>
+          <button class="btn btn-primary" type="button" id="weather-yes">天気と位置情報を使う</button>
+          <button class="btn btn-ghost" type="button" id="weather-no">使わない</button>
         </div>
       </section>`;
   }
@@ -269,22 +297,60 @@
     }
     navigator.geolocation.getCurrentPosition((position) => {
       const region = regionFromLocation(position.coords.latitude, position.coords.longitude);
-      const changed = region !== state.climate.region;
       state.climate = { ...state.climate, consent: 'GRANTED', region, source: 'LOCATION', locatedAt: todayIso() };
       saveState(state);
       render();
-      if (!silent || changed) {
-        toast(`地域を「${CLIMATE_REGIONS[region].label}」にしました。いまは${CLIMATE_ADJ[climateOn(todayIso())]}時期です`);
+      if (!silent) toast(`地域を「${CLIMATE_REGIONS[region].label}」にしました`);
+    }, (error) => locationFailed(error, silent), { enableHighAccuracy: false, timeout: 15000, maximumAge: 24 * 60 * 60 * 1000 });
+  }
+
+  /** 端末の側で位置情報を断られたら、同意も取り下げとして扱う。何度も聞かない */
+  function locationFailed(error, silent) {
+    if (error && error.code === 1) {
+      state.climate = { ...state.climate, consent: 'DENIED', weather: { ...state.climate.weather, consent: 'DENIED' } };
+      saveState(state);
+      render();
+    }
+    if (!silent) toast('位置情報を取得できませんでした。設定から地域を選べます');
+  }
+
+  /**
+   * 天気予報から外の気温を取る。今日から3日の、最高と最低の真ん中の平均を使う。
+   * 食材はしばらく置くものなので、今の一瞬の気温より数日のならしのほうが目安に合う。
+   * 送るのは約10kmに丸めた緯度経度だけ。位置は保存しない。地域も同じ位置から決め直す。
+   */
+  function fetchWeather(silent) {
+    if (!('geolocation' in navigator) || typeof fetch !== 'function') {
+      if (!silent) toast('この端末では天気予報を使えません。部屋の温度は自分で決められます');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const lat = Math.round(position.coords.latitude * 10) / 10;
+      const lon = Math.round(position.coords.longitude * 10) / 10;
+      if (!state.climate.regionPinned) {
+        state.climate = { ...state.climate, consent: 'GRANTED', region: regionFromLocation(lat, lon), source: 'LOCATION', locatedAt: todayIso() };
       }
-    }, (error) => {
-      /* 端末の側で断られたら、同意も取り下げとして扱う。何度も聞かない */
-      if (error && error.code === 1) {
-        state.climate = { ...state.climate, consent: 'DENIED' };
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+          + '&daily=temperature_2m_max,temperature_2m_min&forecast_days=3&timezone=auto';
+        const response = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' });
+        if (!response.ok) throw new Error(`weather ${response.status}`);
+        const data = await response.json();
+        const highs = data.daily.temperature_2m_max;
+        const lows = data.daily.temperature_2m_min;
+        const means = highs.map((high, index) => (high + lows[index]) / 2).filter(Number.isFinite);
+        if (means.length === 0) throw new Error('weather empty');
+        const outdoor = Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 10) / 10;
+        state.climate = { ...state.climate, weather: { consent: 'GRANTED', outdoor, fetchedAt: new Date().toISOString() } };
         saveState(state);
         render();
+        if (!silent) toast(`外の気温は約${Math.round(outdoor)}℃、部屋は約${roomInfo().room}℃として目安を出します`);
+      } catch (error) {
+        saveState(state);
+        render();
+        if (!silent) toast('天気予報を取得できませんでした。地域の平年の気温で見積もります');
       }
-      if (!silent) toast('位置情報を取得できませんでした。設定から地域を選べます');
-    }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 24 * 60 * 60 * 1000 });
+    }, (error) => locationFailed(error, silent), { enableHighAccuracy: false, timeout: 15000, maximumAge: 60 * 60 * 1000 });
   }
 
   /**
@@ -335,10 +401,7 @@
   function placementAdvice(today) {
     const list = placementSuggestions();
     if (list.length === 0) return '';
-    const climate = climateOn(today);
-    const lead = state.climate.mode === 'AUTO'
-      ? `${CLIMATE_REGIONS[state.climate.region].label}はいま${CLIMATE_ADJ[climate]}時期です。`
-      : '';
+    const lead = `部屋はいま約${roomInfo().room}℃です。`;
     return `
       <section class="advice">
         <span class="advice-head">置き場所の提案 <b>${list.length}</b>件</span>
@@ -703,6 +766,92 @@
 
   /* --- 設定 --------------------------------------------------------------- */
 
+  /** 設定の「部屋の温度」。自動（天気予報・平年の気温から）か、自分で決めるか */
+  function roomSettings() {
+    const climate = state.climate;
+    const info = roomInfo();
+    const weather = climate.weather;
+    const canLocate = 'geolocation' in navigator;
+    let auto = '';
+    if (climate.mode === 'AUTO') {
+      const from = info.source === 'WEATHER'
+        ? `天気予報の外の気温 約${Math.round(info.outdoor)}℃（${formatStamp(info.at)}に取得）から見積もっています。3時間ごとに、開いたときに取り直します。`
+        : `${CLIMATE_REGIONS[climate.region].label}の${Number(todayIso().slice(5, 7))}月の平年の気温 約${info.outdoor}℃から見積もっています。`;
+      auto = `
+        <p class="room-now">部屋はいま約 <b>${info.room}℃</b></p>
+        <p class="hint">${from}</p>
+        ${canLocate ? (weather.consent === 'GRANTED' ? `
+          <p class="hint">おおよその位置（約10km単位）を天気予報のサービス（Open-Meteo）に送って気温を受け取ります。食材の情報は送りません。</p>
+          <div class="settings-actions">
+            <button class="btn btn-ghost" type="button" id="weather-again">天気予報を取り直す</button>
+            <button class="btn btn-ghost" type="button" id="weather-off">天気予報を使わない</button>
+          </div>` : `
+          <div class="settings-actions">
+            <button class="btn btn-ghost" type="button" id="weather-yes">天気予報の気温を使う</button>
+          </div>
+          <p class="hint">使うと、おおよその位置（約10km単位）を天気予報のサービス（Open-Meteo）に送ります。食材の情報は送りません。</p>`) : ''}
+        <label class="field-row">
+          <span>地域</span>
+          <select id="climate-region">
+            ${Object.entries(CLIMATE_REGIONS).map(([key, r]) => `
+              <option value="${key}" ${climate.region === key ? 'selected' : ''}>${r.label}</option>`).join('')}
+          </select>
+        </label>
+        <p class="hint">天気予報が取れないときは、地域とその月の平年の気温で見積もります。</p>`;
+    }
+    const manual = climate.mode === 'MANUAL' ? `
+      <div class="room-manual">
+        <input type="range" id="room-temp" min="0" max="35" step="1" value="${climate.manualTemp}" aria-label="部屋の温度">
+        <output class="room-now" id="room-temp-value"><b>${climate.manualTemp}℃</b></output>
+      </div>
+      <div class="state-chips">
+        ${[[12, '涼しい 12℃'], [20, 'ふつう 20℃'], [28, '暑い 28℃']].map(([t, label]) => `
+          <button class="state-chip" type="button" data-room-preset="${t}" aria-pressed="${climate.manualTemp === t}">${label}</button>`).join('')}
+      </div>
+      <p class="hint">食材を常温で置いている場所（台所・食品棚など）の、ふだんの温度にしてください。</p>` : '';
+
+    return `
+      <section class="settings-block">
+        <h3>部屋の温度</h3>
+        <p class="hint">常温に置いた食材の目安を、部屋の温度で変えます。冷蔵庫の中の温度は下の「冷蔵庫の中の温度」で決めます。</p>
+        <div class="seg seg-wrap">
+          ${Object.entries(ROOM_MODE_LABELS).map(([key, label]) => `
+            <button class="seg-btn" type="button" data-room-mode="${key}" aria-pressed="${climate.mode === key}">${label}</button>`).join('')}
+        </div>
+        ${auto}${manual}
+      </section>`;
+  }
+
+  /**
+   * 設定の「冷蔵庫の中の温度」。段ごとに温度を決められる。
+   * 空ならその種類のふつうの温度（冷蔵4℃・野菜室6℃・冷凍-18℃・常温は部屋の温度）。
+   */
+  function compartmentTempSettings() {
+    const room = roomInfo().room;
+    return `
+      <section class="settings-block">
+        <h3>冷蔵庫の中の温度</h3>
+        <p class="hint">場所ごとの温度で目安を変えます。空欄はふつうの温度です。
+          チルド室なら0℃前後、冷えにくい扉のポケットなら6〜8℃のように、分かる所だけ入れてください。</p>
+        <div class="temp-list">
+          ${state.layout.map((unit) => `
+            <div class="temp-unit">
+              <span class="temp-unit-name">${esc(unit.name)}</span>
+              ${unit.compartments.map((c) => `
+                <label class="temp-row">
+                  <span class="temp-name">${esc(c.name)}<em>${STORAGE_LABELS[c.kind]}</em></span>
+                  <span class="temp-input">
+                    <input type="number" inputmode="numeric" step="1" min="-30" max="40" data-comp-temp="${c.id}"
+                           value="${Number.isFinite(c.temp) ? c.temp : ''}"
+                           placeholder="${c.kind === 'ROOM_TEMP' ? `部屋 ${room}` : DEFAULT_TEMPS[c.kind]}">
+                    <i>℃</i>
+                  </span>
+                </label>`).join('')}
+            </div>`).join('')}
+        </div>
+      </section>`;
+  }
+
   function settingsPane() {
     const ai = AiAssist.loadSettings();
     const remembered = Object.keys(state.janNames).length;
@@ -783,39 +932,8 @@
           </p>
         </section>
 
-        <section class="settings-block">
-          <h3>部屋の暑さ</h3>
-          <p class="hint">常温に置いた食材の目安を、部屋の暑さで変えます。冷蔵庫と冷凍庫の中は変えません。</p>
-          <div class="seg seg-wrap">
-            ${Object.entries(CLIMATE_LABELS).map(([key, label]) => `
-              <button class="seg-btn" type="button" data-climate-mode="${key}"
-                      aria-pressed="${state.climate.mode === key}">${label}</button>`).join('')}
-          </div>
-          ${state.climate.mode === 'AUTO' ? `
-            <label class="field-row">
-              <span>地域</span>
-              <select id="climate-region">
-                ${Object.entries(CLIMATE_REGIONS).map(([key, r]) => `
-                  <option value="${key}" ${state.climate.region === key ? 'selected' : ''}>${r.label}</option>`).join('')}
-              </select>
-            </label>
-            ${'geolocation' in navigator ? (state.climate.consent === 'GRANTED' ? `
-              <p class="hint">${state.climate.source === 'LOCATION' && state.climate.locatedAt
-                ? `位置情報から決めました（${formatDate(state.climate.locatedAt)}）。月に一度、開いたときに決め直します。`
-                : '位置情報を使う設定です。地域を自分で選ぶと、そちらを優先します。'}
-                位置は地域を決めるのに使うだけで、保存も送信もしません。</p>
-              <div class="settings-actions">
-                <button class="btn btn-ghost" type="button" id="location-again">位置情報で決め直す</button>
-                <button class="btn btn-ghost" type="button" id="location-stop">位置情報を使わない</button>
-              </div>` : `
-              <div class="settings-actions">
-                <button class="btn btn-ghost" type="button" id="location-again">位置情報で地域を決める</button>
-              </div>`) : ''}
-            <p class="hint">いまは<b>${CLIMATE_ADJ[climateOn(todayIso())]}時期</b>として見ています。
-              暑い時期は常温の野菜・果物・パン・卵を短めに、涼しい時期は丸ごとの白菜や大根、いも類を長めに見ます。
-              暖房の効いた部屋など季節どおりでないときは、「暑い」「ふつう」「涼しい」から選んでください。</p>` : `
-            <p class="hint">季節にかかわらず<b>${CLIMATE_ADJ[state.climate.mode]}部屋</b>として目安を出します。</p>`}
-        </section>
+        ${roomSettings()}
+        ${compartmentTempSettings()}
 
         <section class="settings-block">
           <h3>冷蔵庫の中の分け方</h3>
@@ -1893,6 +2011,18 @@
       <div class="sheet-form action-form">
         <h2 id="action-title"></h2>
         <p id="action-sub"></p>
+        <div class="expiry-row">
+          <span class="state-label">期限</span>
+          <div class="expiry-inputs">
+            <select id="act-type" aria-label="期限の種別">
+              <option value="BEST_BEFORE">賞味期限</option>
+              <option value="USE_BY">消費期限</option>
+            </select>
+            <input type="date" id="act-date" aria-label="期限日">
+            <button class="mini" type="button" id="act-scan">読む</button>
+          </div>
+          <button class="link-btn" type="button" id="act-clear" hidden>期限を消して目安に戻す</button>
+        </div>
         <p class="action-tip" id="action-tip" hidden></p>
         <button class="action-btn action-place" type="button" data-act="place" hidden>
           <b id="place-label"></b><span id="place-sub"></span>
@@ -1922,6 +2052,37 @@
         <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
         <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
       </div>`;
+
+    /**
+     * 期限。編集の画面へ行かずに、ここで入れて直せるようにする。
+     * 入れたらその場で目安と緊急度が変わるので、シートは閉じずに中身だけ描き直す。
+     */
+    const setExpiry = (date, type) => {
+      const item = findItem(el.dataset.itemId);
+      if (!item) return;
+      item.expiryDate = date || null;
+      if (type) item.expiryType = type;
+      else if (date && item.expiryType === 'UNKNOWN') item.expiryType = 'BEST_BEFORE';
+      saveState(state);
+      render();
+      fillActions(item);
+    };
+    el.querySelector('#act-date').addEventListener('change', (event) => setExpiry(event.target.value, el.querySelector('#act-type').value));
+    el.querySelector('#act-type').addEventListener('change', (event) => {
+      const item = findItem(el.dataset.itemId);
+      if (item) setExpiry(item.expiryDate, event.target.value);
+    });
+    el.querySelector('#act-clear').addEventListener('click', () => setExpiry(null, null));
+    el.querySelector('#act-scan').addEventListener('click', () => {
+      if (Date.now() - Number(el.dataset.openedAt || 0) < 450) return;
+      openScan('expiry', (result) => {
+        const found = result.expiry;
+        if (found && found.date) {
+          setExpiry(found.date, found.expiryType || null);
+          toast(`期限を${formatDate(found.date)}にしました。違っていたら直してください`);
+        }
+      });
+    });
 
     /* 状態と包み方。選ぶとその場で目安が変わるので、シートは閉じずに中身だけ描き直す */
     el.addEventListener('click', (event) => {
@@ -1984,6 +2145,9 @@
     setEatCount(1, item.quantity);
     fillActions(item);
     actionDialog.dataset.openedAt = String(Date.now());
+    /* 開いた直後は中身を触れなくする。指を離した直後のタップで、日付の入力などが開いてしまわないように */
+    actionDialog.classList.add('is-opening');
+    setTimeout(() => actionDialog.classList.remove('is-opening'), 450);
     actionDialog.showModal();
   }
 
@@ -2032,6 +2196,10 @@
     wrapRow.hidden = !(wrapMatters(item) && (kind === 'FRIDGE' || kind === 'VEGETABLE_DRAWER'));
     wrapRow.querySelector('[data-wrap="on"]').setAttribute('aria-pressed', String(item.wrapped !== false));
     wrapRow.querySelector('[data-wrap="off"]').setAttribute('aria-pressed', String(item.wrapped === false));
+
+    actionDialog.querySelector('#act-date').value = item.expiryDate || '';
+    actionDialog.querySelector('#act-type').value = item.expiryType === 'USE_BY' ? 'USE_BY' : 'BEST_BEFORE';
+    actionDialog.querySelector('#act-clear').hidden = !item.expiryDate;
 
     actionDialog.querySelector('#eat-row').hidden = item.quantity <= 1;
   }
@@ -2279,6 +2447,7 @@
     return {
       name: dialog.querySelector('#f-name').value.trim(),
       category: dialog.querySelector('#f-category').value,
+      compartmentId: dialog.querySelector('#f-place').value || null,
       registeredAt: existing ? existing.registeredAt : todayIso(),
       expiryDate: dialog.querySelector('#f-date').value || null,
       condition,
@@ -2446,30 +2615,30 @@
       });
     });
 
-    const locationYes = root.querySelector('#location-yes');
-    if (locationYes) {
-      locationYes.addEventListener('click', () => {
-        state.climate = { ...state.climate, consent: 'GRANTED' };
+    /* 天気予報と位置情報の同意。使うなら位置情報の同意も一緒にもらう */
+    root.querySelectorAll('#weather-yes').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.climate = { ...state.climate, consent: 'GRANTED', weather: { ...state.climate.weather, consent: 'GRANTED' } };
         saveState(state);
         render();
-        locateRegion(false);
+        fetchWeather(false);
       });
-    }
-    const locationNo = root.querySelector('#location-no');
-    if (locationNo) {
-      locationNo.addEventListener('click', () => {
-        state.climate = { ...state.climate, consent: 'DENIED' };
+    });
+    const weatherNo = root.querySelector('#weather-no');
+    if (weatherNo) {
+      weatherNo.addEventListener('click', () => {
+        state.climate = { ...state.climate, weather: { ...state.climate.weather, consent: 'DENIED' } };
         saveState(state);
         render();
-        toast('位置情報は使いません。地域は設定の「部屋の暑さ」から選べます');
+        toast('天気予報は使いません。部屋の温度は設定から決められます');
       });
     }
-    const relocate = root.querySelector('#location-again');
-    if (relocate) relocate.addEventListener('click', () => locateRegion(false));
-    const stopLocation = root.querySelector('#location-stop');
-    if (stopLocation) {
-      stopLocation.addEventListener('click', () => {
-        state.climate = { ...state.climate, consent: 'DENIED', source: 'MANUAL' };
+    const weatherAgain = root.querySelector('#weather-again');
+    if (weatherAgain) weatherAgain.addEventListener('click', () => fetchWeather(false));
+    const weatherOff = root.querySelector('#weather-off');
+    if (weatherOff) {
+      weatherOff.addEventListener('click', () => {
+        state.climate = { ...state.climate, weather: { consent: 'DENIED', outdoor: null, fetchedAt: null } };
         saveState(state);
         render();
       });
@@ -2480,9 +2649,38 @@
     const adviceAll = root.querySelector('#advice-all');
     if (adviceAll) adviceAll.addEventListener('click', () => moveToSuggested(placementSuggestions().map((x) => x.item.id)));
 
-    root.querySelectorAll('[data-climate-mode]').forEach((el) => {
+    root.querySelectorAll('[data-room-mode]').forEach((el) => {
       el.addEventListener('click', () => {
-        state.climate.mode = el.dataset.climateMode;
+        state.climate.mode = el.dataset.roomMode;
+        saveState(state);
+        render();
+      });
+    });
+    const roomTemp = root.querySelector('#room-temp');
+    if (roomTemp) {
+      /* 動かしている間は数字だけ変え、離したときに保存して目安を描き直す */
+      roomTemp.addEventListener('input', () => {
+        root.querySelector('#room-temp-value').innerHTML = `<b>${roomTemp.value}℃</b>`;
+      });
+      roomTemp.addEventListener('change', () => {
+        state.climate.manualTemp = Number(roomTemp.value);
+        saveState(state);
+        render();
+      });
+    }
+    root.querySelectorAll('[data-room-preset]').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.climate.manualTemp = Number(el.dataset.roomPreset);
+        saveState(state);
+        render();
+      });
+    });
+    root.querySelectorAll('[data-comp-temp]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const target = findCompartment(state.layout, el.dataset.compTemp);
+        if (!target) return;
+        const value = el.value.trim() === '' ? null : Math.round(Number(el.value));
+        target.temp = Number.isFinite(value) ? Math.min(40, Math.max(-30, value)) : null;
         saveState(state);
         render();
       });
@@ -2491,8 +2689,9 @@
     if (region) {
       region.addEventListener('change', () => {
         state.climate.region = region.value;
-        /* 自分で選んだ地域は、起動時の位置情報での決め直しで上書きしない */
+        /* 自分で選んだ地域は、位置情報や天気予報での決め直しで上書きしない */
         state.climate.source = 'MANUAL';
+        state.climate.regionPinned = true;
         saveState(state);
         render();
       });

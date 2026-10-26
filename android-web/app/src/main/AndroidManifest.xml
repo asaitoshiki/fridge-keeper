@@ -8,7 +8,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
 
-    <!-- INTERNET は宣言しない。画面もデータも端末の中だけで完結させる -->
+    <!--
+      天気予報の気温を取るためだけに使う（同意をもらったときだけ、約10kmに丸めた位置を送る）。
+      画面と食材のデータは端末の中だけで完結させ、外へは送らない。
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

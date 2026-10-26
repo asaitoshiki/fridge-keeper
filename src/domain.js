@@ -70,27 +70,35 @@ const OPENED_DAYS = {
 };
 const OPENED_ROOM_DAYS = { SEASONING: 30 };
 
-/* --- 部屋の暑さ ---------------------------------------------------------- */
+/* --- 温度 ---------------------------------------------------------------- */
 
 /**
- * 常温の日持ちは部屋の暑さで大きく変わる。冷蔵庫と冷凍庫の中は一年中ほぼ同じなので変えない。
- * 気温を外から取ってくることはしない（端末の外へ出ない作り）。代わりに、
- * 月と地域から夏・冬を決めるか、使う人が「暑い」「涼しい」を選ぶ。
+ * 日持ちは置き場所の温度で変わる。
+ * 冷蔵・野菜室・冷凍は、段ごとに温度を決められる（空ならふつうの冷蔵庫の温度）。
+ * 常温は部屋の温度で、天気予報の気温から自動で見積もるか、使う人が決める。
  *
- * HOT  暑い（おおむね25℃以上）。常温の野菜・果物・パン・卵などは短めに見る
- * MILD ふつう。表の値そのまま
- * COOL 涼しい（おおむね15℃以下）。丸ごとの白菜・大根・いも類などは長めに見る
+ * 表（shelflife.js / PRESET_DAYS）の日数は、下の基準の温度のときの値。
+ * それより暑ければ短く、寒ければ長くする。温度が10℃上がると傷む速さがおよそ2.5倍になる、
+ * という目安（Q10）で伸び縮みさせる。
  */
-const CLIMATE_LABELS = { AUTO: '季節で自動', HOT: '暑い', MILD: 'ふつう', COOL: '涼しい' };
+const REF_TEMPS = { FRIDGE: 4, VEGETABLE_DRAWER: 6, ROOM_TEMP: 20, FREEZER: -18 };
+const DEFAULT_TEMPS = { FRIDGE: 4, VEGETABLE_DRAWER: 6, FREEZER: -18 };
+const Q10 = 2.5;
 
-/** 地域ごとの、暑い月と涼しい月 */
+/** 部屋の温度の決め方。AUTO=外の気温から見積もる / MANUAL=使う人が決める */
+const ROOM_MODE_LABELS = { AUTO: '自動', MANUAL: '自分で決める' };
+
+/**
+ * 地域ごとの、月ごとの平年の気温（日平均、℃）。天気予報が取れないときに使う。
+ * 北海道=札幌、東北・北陸=仙台、関東〜九州=東京、沖縄・奄美=那覇、南半球=シドニーのおおよその値。
+ */
 const CLIMATE_REGIONS = {
-  HOKKAIDO: { label: '北海道', hot: [7, 8], cool: [11, 12, 1, 2, 3] },
-  TOHOKU: { label: '東北・北陸', hot: [7, 8], cool: [12, 1, 2, 3] },
-  HONSHU: { label: '関東〜九州', hot: [6, 7, 8, 9], cool: [12, 1, 2] },
-  OKINAWA: { label: '沖縄・奄美', hot: [5, 6, 7, 8, 9, 10], cool: [] },
-  TROPICAL: { label: '一年中暑い地域', hot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], cool: [] },
-  SOUTH: { label: '南半球', hot: [12, 1, 2, 3], cool: [6, 7, 8] },
+  HOKKAIDO: { label: '北海道', normals: [-3, -3, 1, 7, 13, 17, 21, 22, 19, 12, 5, -1] },
+  TOHOKU: { label: '東北・北陸', normals: [2, 2, 5, 10, 15, 19, 23, 24, 21, 16, 10, 4] },
+  HONSHU: { label: '関東〜九州', normals: [5, 6, 9, 14, 19, 22, 26, 27, 23, 18, 13, 8] },
+  OKINAWA: { label: '沖縄・奄美', normals: [17, 18, 19, 22, 24, 27, 29, 29, 28, 26, 23, 19] },
+  TROPICAL: { label: '一年中暑い地域', normals: [27, 27, 28, 28, 28, 28, 28, 28, 28, 28, 27, 27] },
+  SOUTH: { label: '南半球', normals: [23, 24, 22, 20, 17, 14, 13, 15, 17, 19, 21, 22] },
 };
 
 /**
@@ -111,23 +119,62 @@ function regionFromLocation(lat, lon) {
   return 'HONSHU';
 }
 
-let climateSetting = { mode: 'AUTO', region: 'HONSHU' };
-
-/** 設定の画面で選んだ部屋の暑さを、目安の計算に渡す */
-function setClimate(setting) {
-  const mode = setting && CLIMATE_LABELS[setting.mode] ? setting.mode : 'AUTO';
-  const region = setting && CLIMATE_REGIONS[setting.region] ? setting.region : 'HONSHU';
-  climateSetting = { mode, region };
+/** その地域のその月の平年の気温 */
+function normalTempFor(region, iso) {
+  const month = Number(String(iso || todayIso()).slice(5, 7));
+  return (CLIMATE_REGIONS[region] || CLIMATE_REGIONS.HONSHU).normals[month - 1];
 }
 
-/** その日の部屋の暑さ。登録した日（開けた日）の暑さで、その食材の目安を決める */
-function climateOn(iso) {
-  if (climateSetting.mode !== 'AUTO') return climateSetting.mode;
-  const month = Number(String(iso || todayIso()).slice(5, 7));
-  const region = CLIMATE_REGIONS[climateSetting.region];
-  if (region.hot.includes(month)) return 'HOT';
-  if (region.cool.includes(month)) return 'COOL';
+/**
+ * 外の気温から、台所や食品棚のあたりの温度を見積もる。
+ * 暑い日は外より少し暑く（日中の熱がこもる）、寒い日は暖房や家の中の空気で外ほど下がらない。
+ * 外が0℃でおよそ10℃、15℃で18℃、25℃で28℃、30℃以上で32℃どまり。
+ */
+function roomTempFromOutdoor(outdoor) {
+  return Math.round(Math.min(32, Math.max(10 + 0.3 * outdoor, outdoor + 3)));
+}
+
+let roomTempNow = REF_TEMPS.ROOM_TEMP;
+let compartmentTemps = {};
+
+/** いまの部屋の温度を、目安の計算に渡す */
+function setRoomTemp(temp) {
+  roomTempNow = Number.isFinite(temp) ? temp : REF_TEMPS.ROOM_TEMP;
+}
+
+/** 段ごとに決めた温度を、目安の計算に渡す */
+function setCompartmentTemps(layout) {
+  compartmentTemps = {};
+  layout.forEach((unit) => unit.compartments.forEach((c) => {
+    compartmentTemps[c.id] = { kind: c.kind, temp: Number.isFinite(c.temp) ? c.temp : null };
+  }));
+}
+
+/** その段のふつうの温度。常温はいまの部屋の温度 */
+function defaultTempFor(storageKind) {
+  return storageKind === 'ROOM_TEMP' ? roomTempNow : DEFAULT_TEMPS[storageKind];
+}
+
+/**
+ * 食材が置かれる温度。いまの段に温度を決めてあればそれ、無ければその種類のふつうの温度。
+ * 別の場所へ移したらどうなるか、を見積もるとき（置き場所の提案）は、その種類のふつうの温度で見る。
+ */
+function tempAt(item, storageKind) {
+  const here = compartmentTemps[item.compartmentId];
+  if (here && here.kind === storageKind && here.temp !== null) return here.temp;
+  return defaultTempFor(storageKind);
+}
+
+/** 部屋の暑さのおおまかな区分。暑い時期だけのおすすめやコツを出すのに使う */
+function climateOn() {
+  if (roomTempNow >= 25) return 'HOT';
+  if (roomTempNow <= 15) return 'COOL';
   return 'MILD';
+}
+
+/** 基準の温度から temp に変わったときの、日持ちの伸び縮みの倍率 */
+function q10Factor(ref, temp) {
+  return Math.pow(Q10, (ref - temp) / 10);
 }
 
 /**
@@ -137,18 +184,38 @@ function climateOn(iso) {
 const CLIMATE_SENSITIVE = ['VEGETABLE', 'FRUIT', 'EGG', 'PROCESSED', 'DAIRY', 'MEAT_FISH', 'OTHER'];
 
 /**
- * 常温の目安を部屋の暑さに合わせる。
- * 食品ごとに暑いとき（Rs）・涼しいとき（Rw）の値があればそれを使う。
- * 無ければ、暑いときは暑さに弱いカテゴリだけ半分にする。涼しいときは値があるものだけ延ばす。
+ * 常温の目安を部屋の温度に合わせる。
+ * 表の値は20℃のとき。食品ごとに28℃のとき（Rs）・12℃のとき（Rw）の値があればその間をつなぐ。
+ * 無ければ、暑さに弱いものだけ温度で縮め（28℃でおよそ半分）、涼しくても延ばさない。
+ * さつまいもやバナナのように冷えると傷むものがあるので、延ばすのは値を決めてあるものだけにする。
  */
-function roomDaysFor(days, item, food, climate, hotKey, coolKey) {
-  if (climate === 'HOT') {
-    if (food && typeof food[hotKey] === 'number') return food[hotKey];
-    if (CLIMATE_SENSITIVE.includes(item.category) && days < 60) return Math.floor(days / 2);
-    return days;
-  }
-  if (climate === 'COOL' && food && typeof food[coolKey] === 'number') return food[coolKey];
-  return days;
+function roomDaysAt(days, item, food, temp, hotKey, coolKey) {
+  const sensitive = CLIMATE_SENSITIVE.includes(item.category) && days < 60;
+  const hot = food && typeof food[hotKey] === 'number'
+    ? food[hotKey]
+    : (sensitive ? days * q10Factor(20, 28) : days);
+  const cool = food && typeof food[coolKey] === 'number' ? food[coolKey] : days;
+  let value;
+  if (temp >= 28) value = sensitive ? hot * q10Factor(28, temp) : hot;
+  else if (temp >= 20) value = days + (hot - days) * ((temp - 20) / 8);
+  else if (temp >= 12) value = days + (cool - days) * ((20 - temp) / 8);
+  else value = cool;
+  return Math.max(0, Math.floor(value));
+}
+
+/**
+ * 冷蔵・野菜室・冷凍の目安を、段の温度に合わせる。
+ * 冷蔵庫の中は基準より冷たくしても延びるのは1.5倍まで（凍りかけると野菜が傷むため）。
+ * 冷凍庫は-15℃より暖かいと、品質が早く落ちるので半分にする。
+ */
+function coldDaysAt(days, storageKind, temp) {
+  if (days === null) return null;
+  if (storageKind === 'FREEZER') return temp <= -15 ? days : Math.floor(days / 2);
+  const ref = REF_TEMPS[storageKind];
+  if (!Number.isFinite(temp) || temp === ref) return days;
+  const factor = Math.min(1.5, q10Factor(ref, temp));
+  const value = Math.round(days * factor);
+  return days > 0 && factor >= 0.5 ? Math.max(1, value) : Math.max(0, value);
 }
 
 /* --- 野菜・果物の切り方と包み方 ----------------------------------------------- */
@@ -253,8 +320,9 @@ function estimateDaysFor(item, storageKind) {
   const own = food ? food[SHELF_KEYS[storageKind]] : undefined;
   const days = typeof own === 'number' ? own : presetDaysFor(item.category, storageKind);
   if (days === null) return null;
-  if (storageKind !== 'ROOM_TEMP') return wrapAdjusted(days, item, storageKind, false);
-  return roomDaysFor(days, item, food, climateOn(item.registeredAt), 'Rs', 'Rw');
+  const temp = tempAt(item, storageKind);
+  if (storageKind !== 'ROOM_TEMP') return coldDaysAt(wrapAdjusted(days, item, storageKind, false), storageKind, temp);
+  return roomDaysAt(days, item, food, temp, 'Rs', 'Rw');
 }
 
 /**
@@ -280,11 +348,13 @@ function conditionDaysFor(item, storageKind) {
   if (condition === 'COOKED') {
     if (storageKind === 'ROOM_TEMP') return 0;
     const own = food && typeof food.cooked === 'number' ? food.cooked : null;
-    return wrapAdjusted(own !== null ? own : (COOKED_DAYS[item.category] || 2), item, storageKind, true);
+    const days = wrapAdjusted(own !== null ? own : (COOKED_DAYS[item.category] || 2), item, storageKind, true);
+    return coldDaysAt(days, storageKind, tempAt(item, storageKind));
   }
   if (condition === 'THAWED') {
     if (storageKind === 'ROOM_TEMP') return 0;
-    return THAWED_DAYS[item.category] !== undefined ? THAWED_DAYS[item.category] : 1;
+    const days = THAWED_DAYS[item.category] !== undefined ? THAWED_DAYS[item.category] : 1;
+    return coldDaysAt(days, storageKind, tempAt(item, storageKind));
   }
   return openedDaysFor(item, storageKind);
 }
@@ -298,12 +368,12 @@ function openedDaysFor(item, storageKind) {
   if (storageKind === 'ROOM_TEMP') {
     let days = food && typeof food.openR === 'number' ? food.openR : OPENED_ROOM_DAYS[item.category];
     if (typeof days !== 'number') return 0;
-    return roomDaysFor(days, item, food, climateOn(item.openedAt), 'openRs', 'openRw');
+    return roomDaysAt(days, item, food, tempAt(item, storageKind), 'openRs', 'openRw');
   }
   const days = food && typeof food.open === 'number'
     ? food.open
     : (OPENED_DAYS[item.category] !== undefined ? OPENED_DAYS[item.category] : OPENED_DAYS.OTHER);
-  return wrapAdjusted(days, item, storageKind, true);
+  return coldDaysAt(wrapAdjusted(days, item, storageKind, true), storageKind, tempAt(item, storageKind));
 }
 
 /**
@@ -339,7 +409,7 @@ function bestStorageFor(item) {
   }
   if (!food || !food.best) return null;
   /* 暑い時期だけ置き場所を変えたほうがいいもの（たまねぎ・チョコなど） */
-  if (climateOn(todayIso()) === 'HOT' && food.bestS) return SHELF_KIND_OF[food.bestS];
+  if (climateOn() === 'HOT' && food.bestS) return SHELF_KIND_OF[food.bestS];
   return SHELF_KIND_OF[food.best];
 }
 
@@ -347,7 +417,7 @@ function bestStorageFor(item) {
 function storageTipFor(item) {
   const food = typeof shelfLifeFor === 'function' ? shelfLifeFor(item.name, item.category) : null;
   if (!food) return null;
-  if (climateOn(todayIso()) === 'HOT' && food.tipS) return food.tipS;
+  if (climateOn() === 'HOT' && food.tipS) return food.tipS;
   return food.tip || null;
 }
 

@@ -149,9 +149,10 @@ function useDetailed(state) {
  * noDoor も扉の始まりの段だけが使う。true ならその区画は扉を外してある。
  * 2ドアの下の扉だけ外す、のように扉は区画ごとに外せる。
  * side は観音開きのポケットがどちらの扉に付くか（'left' | 'right'）。null なら左右交互に振り分ける。
+ * temp はその段の温度（℃）。null ならその種類のふつうの温度（冷蔵4℃・野菜室6℃・冷凍-18℃・常温は部屋の温度）。
  */
 function comp(id, name, kind, form, width, height, newDoor) {
-  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null, noDoor: false, side: null };
+  return { id, name, kind, form, width, height, color: null, newDoor: Boolean(newDoor), doorHeight: null, noDoor: false, side: null, temp: null };
 }
 
 /**
@@ -244,7 +245,11 @@ function emptyState() {
      * source    地域をどう決めたか。'LOCATION'=位置情報から / 'MANUAL'=自分で選んだ
      * locatedAt 位置情報から地域を決めた日。位置（緯度経度）そのものは保存しない
      */
-    climate: { mode: 'AUTO', region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null },
+    climate: {
+      mode: 'AUTO', manualTemp: 20, region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null,
+      /* 天気予報から取った外の気温。consent は天気予報を使う同意（おおよその位置を外へ送るため別に聞く） */
+      weather: { consent: null, outdoor: null, fetchedAt: null },
+    },
     sampleLoaded: false,
   };
 }
@@ -294,9 +299,21 @@ function normalize(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   if (!state.janNames || typeof state.janNames !== 'object') state.janNames = {};
   if (!['auto', 'light', 'dark'].includes(state.theme)) state.theme = 'auto';
-  state.climate = { mode: 'AUTO', region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null, ...(state.climate || {}) };
+  state.climate = {
+    mode: 'AUTO', manualTemp: 20, region: 'HONSHU', consent: null, source: 'MANUAL', locatedAt: null,
+    ...(state.climate || {}),
+  };
   if (!['GRANTED', 'DENIED'].includes(state.climate.consent)) state.climate.consent = null;
-  if (!CLIMATE_LABELS[state.climate.mode]) state.climate.mode = 'AUTO';
+  /* 「暑い・ふつう・涼しい」で選んでいた頃の設定は、その温度を自分で決めたものとして読み替える */
+  const OLD_MODES = { HOT: 28, MILD: 20, COOL: 12 };
+  if (OLD_MODES[state.climate.mode] !== undefined) {
+    state.climate.manualTemp = OLD_MODES[state.climate.mode];
+    state.climate.mode = 'MANUAL';
+  }
+  if (!ROOM_MODE_LABELS[state.climate.mode]) state.climate.mode = 'AUTO';
+  if (!Number.isFinite(state.climate.manualTemp)) state.climate.manualTemp = 20;
+  state.climate.weather = { consent: null, outdoor: null, fetchedAt: null, ...(state.climate.weather || {}) };
+  if (!['GRANTED', 'DENIED'].includes(state.climate.weather.consent)) state.climate.weather.consent = null;
   if (!CLIMATE_REGIONS[state.climate.region]) state.climate.region = 'HONSHU';
   /* 絵文字と食材ごとの通知を持たなかった頃の保存データを補う */
   state.items.forEach((item) => {
@@ -352,6 +369,7 @@ function normalizeLayout(layout) {
       if (c.doorHeight === undefined) c.doorHeight = null;
       if (c.noDoor === undefined) c.noDoor = false;
       if (c.side !== 'left' && c.side !== 'right') c.side = null;
+      if (!Number.isFinite(c.temp)) c.temp = null;
       delete c.span;
       delete c.size;
     });
