@@ -1163,13 +1163,8 @@
   function quickBar() {
     if (editingLayout || view !== 'fridge') return '';
 
-    const names = templateNames();
-    const chips = names.map((name) =>
-      `<button class="quick-chip" type="button" data-quick="${esc(name)}">${esc(name)}</button>`).join('');
-
     return `
       <div class="quickbar">
-        ${names.length > 0 ? `<div class="quick-templates">${chips}</div>` : ''}
         <form class="quick-add" id="quick-form">
           <input type="text" id="quick-input" placeholder="買ってきたものを入れる" autocomplete="off">
           <button class="quick-scan" type="button" id="quick-foods" aria-label="よく使う食品から選ぶ">${ICON_BASKET}</button>
@@ -1178,12 +1173,6 @@
           <button class="quick-more" type="button" id="open-full" aria-label="詳しく入力">詳しく</button>
         </form>
       </div>`;
-  }
-
-  /** よく買うもの。履歴がなければ、いま入っているものから拾う */
-  function templateNames() {
-    if (state.templates.length > 0) return state.templates.slice(0, 6);
-    return [...new Set(state.items.map((item) => item.name))].slice(0, 6);
   }
 
   /* --- 操作 ------------------------------------------------------------ */
@@ -1263,10 +1252,6 @@
         quickAdd(name);
       });
     }
-
-    root.querySelectorAll('[data-quick]').forEach((el) => {
-      el.addEventListener('click', () => quickAdd(el.dataset.quick));
-    });
 
     const openFull = root.querySelector('#open-full');
     if (openFull) openFull.addEventListener('click', () => openEditor(null));
@@ -1734,15 +1719,11 @@
     });
     const added = state.items[state.items.length - 1];
     if (added.condition === 'CUT') added.openedAt = todayIso();
-    rememberTemplate(name);
     saveState(state);
     render();
     if (!(opts && opts.silent)) toast(`${name} を「買ってきたもの」に入れました`);
   }
 
-  function rememberTemplate(name) {
-    state.templates = [name, ...state.templates.filter((n) => n !== name)].slice(0, 12);
-  }
 
   /* --- スワイプ --------------------------------------------------------- */
 
@@ -2538,7 +2519,6 @@
       if (compartmentId !== existing.compartmentId) relocateItem(state.layout, existing, compartmentId);
     } else {
       state.items.push({ id: newId('item'), registeredAt: todayIso(), ...values });
-      rememberTemplate(values.name);
     }
 
     dialog.close();
