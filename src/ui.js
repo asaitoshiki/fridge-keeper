@@ -101,7 +101,6 @@
       view === 'fridge' || view === 'notices' ? disclaimer() : '',
       '</main>',
       quickBar(),
-      bannerMarkup(),
       navBar(),
     ].join('');
 
@@ -123,6 +122,7 @@
       <header class="appbar">
         <h1 class="wordmark">冷蔵庫<span>の地図</span></h1>
         <span class="tally">${state.items.length}</span>
+        ${bannerMarkup()}
       </header>`;
   }
 
@@ -1828,28 +1828,37 @@
 
   /* --- 取り消しとお知らせの帯 --------------------------------------------- */
 
+  /* 帯を出しておく時間。取り消せる帯は、押し間違いに気づくまでの間を見て長めにする */
+  const UNDO_MS = 12000;
+  const TOAST_MS = 5000;
+
   /**
-   * 帯は画面の骨格の一部として描く。
-   * body に貼り付けて position:fixed にすると、端末枠に収めたときに枠の外へ出る。
+   * 帯は画面の上の見出しの場所に重ねて出す。
+   * 下に出すと、入力欄やタブの上にかぶって、帯が消えるまで次の操作がしづらい。
+   * 見出しは触るものではないので、ここなら何もふさがず、下の中身も動かない。
+   * 残り時間は下の細い線で見せる。描き直しで線が最初から縮み直さないよう、残りの分から始める。
    * 描き直しで消えないよう、DOM を直接いじらず状態から組み立てる。
    */
   function bannerMarkup() {
     if (!banner) return '';
+    const left = Math.max(0, banner.until - Date.now());
     return `
-      <div class="undo-bar">
+      <div class="undo-bar" role="status" style="--left:${left}ms;--from:${(left / banner.duration).toFixed(3)}">
         <span class="undo-text">${esc(banner.message)}</span>
         ${banner.undoable ? '<button class="undo-button" type="button" id="undo-button">取り消す</button>' : ''}
+        <span class="undo-time" aria-hidden="true"></span>
       </div>`;
   }
 
   function armBanner(message, undoable) {
-    banner = { message, undoable };
+    const duration = undoable ? UNDO_MS : TOAST_MS;
+    banner = { message, undoable, duration, until: Date.now() + duration };
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => {
       banner = null;
       undoState = null;
       render();
-    }, undoable ? 8000 : 4000);
+    }, duration);
   }
 
   /** 誤タップ・誤スワイプの取り返しがつくよう、操作前の状態をまるごと控えておく */

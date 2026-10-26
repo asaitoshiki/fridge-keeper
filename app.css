@@ -212,6 +212,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* 上の固定バー。スクロールしても名前と設定へ手が届くようにする */
 .appbar {
+  position: relative;
   flex: none;
   padding-top: env(safe-area-inset-top, 0px);
   display: flex;
@@ -1588,26 +1589,56 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-variant-numeric: tabular-nums;
 }
 
-/* 取り消しの帯。指の届く下端に出す */
+/**
+ * 取り消しの帯。見出しの行に重ねて出す。
+ * 下端に出すと入力欄やタブにかぶり、帯が消えるまで次の操作がしづらかった。
+ * 見出しの上の余白（端末の島など）はよけ、見出しの行だけを覆う。
+ */
 .undo-bar {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 14px;
+  left: 8px;
+  right: 8px;
+  bottom: 5px;
+  min-height: 42px;
   z-index: 70;
   display: flex;
   align-items: center;
-  gap: 14px;
-  max-width: min(520px, calc(100vw - 32px));
-  padding: 11px 12px 11px 16px;
+  gap: 10px;
+  padding: 3px 4px 3px 14px;
   border-radius: 12px;
   background: var(--ink);
   color: var(--surface);
-  box-shadow: 0 10px 28px -10px rgba(10, 24, 32, .65);
+  box-shadow: 0 8px 22px -10px rgba(10, 24, 32, .65);
   font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  animation: undo-in .18s ease-out;
 }
-/* min-width を切らないと、折り返さない文字が縮まず帯を画面の外まで押し広げる */
-.undo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes undo-in { from { opacity: 0; transform: translateY(-6px); } }
+/* 長い知らせは2行まで。min-width を切らないと、文字が縮まず帯を押し広げる */
+.undo-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+/* 残り時間。帯の下端の細い線が右から縮んでいく */
+.undo-time {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: undo-time var(--left, 5000ms) linear forwards;
+}
+@keyframes undo-time { from { transform: scaleX(var(--from, 1)); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .undo-bar, .undo-time { animation: none; }
+}
 .undo-button {
   flex: 0 0 auto;
   background: none;
@@ -1616,9 +1647,11 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 4px 12px;
   min-height: 36px;
+  border-radius: 8px;
 }
+.undo-button:active { background: rgba(255, 255, 255, .12); }
 :root:not([data-theme="light"]) .undo-bar { color: var(--ground); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .undo-bar { background: var(--surface-2); color: var(--ink); }
