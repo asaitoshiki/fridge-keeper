@@ -127,3 +127,8 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 `item.condition`（NONE / CUT / PEELED / OPENED / COOKED / THAWED）と、その状態になった日 `item.openedAt` で目安を変える。選べる状態は `conditionsFor()` が食材の種類ごとに決める。
 野菜・果物と料理は包み方（`item.wrapped`、false=むき出し）でも変わる。冷凍した日は `item.frozenAt`。
 食材の置き場所は `relocateItem()` 以外で書き換えない。冷凍庫へ入れる・出すで冷凍した日と解凍が記される。
+
+## お知らせのタイミング
+
+知らせるタイミングは並び（`state.notify.timings`、`[{daysBefore, time}]`）で、いくつでも持てる。並びは `cleanTimings()` で整える。
+食材ごとの `item.notifyTimings` は null=設定どおり / []=知らせない / 並び=その食材だけ。前の `notifyDaysBefore` / `notifyTime` は読み替え済みで、もう使わない。

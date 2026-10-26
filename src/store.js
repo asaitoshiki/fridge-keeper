@@ -230,7 +230,11 @@ function emptyState() {
     /* 前は入力欄の上に「最近入れたもの」を並べていた。いまは使わないが、古い控えを読めるよう残してある */
     templates: [],
     /* 通知の設定。Web では鳴らせないが、Android へ持っていく値をここで決めておく */
-    notify: { enabled: true, time: '08:00', daysBefore: 3 },
+    notify: {
+      enabled: true, time: '08:00', daysBefore: 3,
+      /* 知らせるタイミング。期限の何日前の何時に知らせるかを、いくつでも持てる */
+      timings: [{ daysBefore: 3, time: '08:00' }, { daysBefore: 1, time: '20:00' }],
+    },
     /**
      * バーコードから商品名を引く辞書。
      * 外部の商品データベースは叩かず、一度登録した商品を端末が覚えていく。
@@ -328,8 +332,23 @@ function normalize(parsed) {
     if (!CONDITION_LABELS[item.condition]) item.condition = conditionOf(item);
     /* 自分で冷凍した日。冷凍庫での目安はこの日から数える */
     if (item.frozenAt === undefined) item.frozenAt = null;
+    /**
+     * 食材ごとの知らせるタイミング。null=アプリ全体の設定どおり / []=知らせない / [{daysBefore, time}, ...]。
+     * 一つしか選べなかった頃（notifyDaysBefore と notifyTime）の設定は、一つだけのタイミングとして読み替える。
+     */
+    if (item.notifyTimings === undefined) {
+      if (item.notifyDaysBefore === null || item.notifyDaysBefore === undefined) item.notifyTimings = null;
+      else if (item.notifyDaysBefore < 0) item.notifyTimings = [];
+      else item.notifyTimings = [{ daysBefore: item.notifyDaysBefore, time: item.notifyTime || (state.notify && state.notify.time) || '08:00' }];
+    }
+    if (item.notifyTimings !== null) item.notifyTimings = cleanTimings(item.notifyTimings);
   });
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
+  /* 知らせるタイミングを一つしか持たなかった頃の設定は、その一つを並びの最初にする */
+  if (!Array.isArray(state.notify.timings) || state.notify.timings.length === 0) {
+    state.notify.timings = [{ daysBefore: state.notify.daysBefore, time: state.notify.time }];
+  }
+  state.notify.timings = cleanTimings(state.notify.timings);
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   normalizeLayout(state.layout);
@@ -467,6 +486,26 @@ function relocateItem(layout, item, compartmentId) {
     return 'THAWED';
   }
   return null;
+}
+
+/**
+ * 知らせるタイミングの並びを整える。日数は0〜14日、時刻は「時:分」。
+ * 同じものは一つにまとめ、早く知らせるもの（日数の多いもの）から、同じ日なら時刻の早い順に並べる。
+ */
+function cleanTimings(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .map((t) => ({
+      daysBefore: Math.min(14, Math.max(0, Math.round(Number(t && t.daysBefore)) || 0)),
+      time: /^\d{2}:\d{2}$/.test(t && t.time) ? t.time : '08:00',
+    }))
+    .filter((t) => {
+      const key = `${t.daysBefore}|${t.time}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.daysBefore - a.daysBefore || a.time.localeCompare(b.time));
 }
 
 /** 収納の種類。まだどこにも入れていない食材は null（期限の目安は出さない） */

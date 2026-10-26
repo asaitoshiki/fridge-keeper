@@ -27,6 +27,8 @@
   let reportDays = 30;
   /* 履歴の絞り込み。ALL / EATEN / DISCARDED / DELETED */
   let historyFilter = 'ALL';
+  /* 登録画面で編集中の、この食材だけの知らせるタイミング */
+  let editorTimings = [];
   let editingId = null;
   /* 見本帳の絞り込み。開いている間だけ使う */
   let foodsCategory = 'ALL';
@@ -204,7 +206,7 @@
       return `
         <section class="summary" data-level="NONE">
           <span class="summary-eyebrow">今日 ${formatDate(today)}</span>
-          <span class="summary-head">${state.notify.daysBefore}日以内に期限を迎える食材はありません</span>
+          <span class="summary-head">${Math.max(...state.notify.timings.map((t) => t.daysBefore))}日以内に期限を迎える食材はありません</span>
           <span class="summary-names">在庫 ${state.items.length} 件を管理中です。</span>
         </section>`;
     }
@@ -593,11 +595,33 @@
             <ul>${unplaced.map((i) => `<li><span>${esc(i.name)}</span><em>未収納</em></li>`).join('')}</ul>
           </section>` : ''}
 
+        ${upcomingMarkup(today)}
+
         <p class="notices-note">
-          Android 版ではこの内容を毎朝 ${state.notify.time} に1通だけ通知します。
-          通知の時刻と日数は設定から変えられます。
+          Android 版では、決めたタイミングごとに通知します（${state.notify.timings.map((t) => `${notifyDayLabel(t.daysBefore)} ${t.time}`).join('・')}）。
+          タイミングは設定から足したり変えたりできます。
         </p>
       </div>`;
+  }
+
+  /** これから7日のうちに知らせる予定。いつ、どの食材が知らされるか */
+  function upcomingMarkup(today) {
+    if (!state.notify.enabled) return '';
+    const slots = upcomingNotices(today);
+    if (slots.length === 0) return '';
+    const tomorrow = addDays(today, 1);
+    const dayName = (day) => (day === today ? '今日' : day === tomorrow ? '明日' : formatDate(day));
+    return `
+      <section class="notice-group" data-tone="plain">
+        <header><h3>これからのお知らせ</h3><span>7日間</span></header>
+        <ul class="upcoming">
+          ${slots.map((slot) => `
+            <li>
+              <span class="upcoming-at">${dayName(slot.day)} ${slot.time}</span>
+              <span class="upcoming-items">${slot.entries.map((x) => `${esc(x.item.name)}<i>${notifyDayLabel(x.days) === '当日' ? '今日まで' : `あと${x.days}日`}</i>`).join('、')}</span>
+            </li>`).join('')}
+        </ul>
+      </section>`;
   }
 
   /* --- 履歴 ------------------------------------------------------------- */
@@ -878,57 +902,11 @@
             <input type="checkbox" id="notify-enabled" ${state.notify.enabled ? 'checked' : ''}>
             <span>期限が近いものを知らせる</span>
           </label>
-          <div class="field-row">
-            <span>時刻</span>
-            <input type="time" id="notify-time" value="${state.notify.time}">
-          </div>
-          <div class="field-row">
-            <span>何日前</span>
-            <input type="number" id="notify-days" min="0" max="14" value="${state.notify.daysBefore}">
-          </div>
+          ${timingRows(state.notify.timings, 'global')}
+          <p class="hint">期限の何日前の何時に知らせるかを、いくつでも決められます。食材ごとに変えるときは、その食材の編集の画面で決めます。</p>
           <p class="hint">
             Web 版では通知を鳴らせません。この設定は Android 版で使われます。
             通知は届かないことがあるので、アプリを開けば必ず状況が分かる作りにしてあります。
-          </p>
-        </section>
-
-        <section class="settings-block">
-          <h3>AI での入力補助</h3>
-          <p class="warn">
-            このアプリは端末内で完結し、データを外へ出しません。
-            AI を有効にすると、入力した食品名が下の接続先へ送られます。
-            既定は無効で、有効にしない限り通信は起きません。
-          </p>
-          <label class="check-row">
-            <input type="checkbox" id="ai-enabled" ${ai.enabled ? 'checked' : ''}>
-            <span>AI を有効にする</span>
-          </label>
-          <div class="field">
-            <label for="ai-endpoint">接続先</label>
-            <input id="ai-endpoint" type="url" placeholder="https://..." value="${esc(ai.endpoint)}" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="ai-model">モデル</label>
-            <input id="ai-model" type="text" value="${esc(ai.model)}" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="ai-key">APIキー</label>
-            <input id="ai-key" type="password" value="${esc(ai.apiKey)}" autocomplete="off">
-          </div>
-          <p class="hint">通信部分はまだ実装されていないため、有効にしても動作しません。</p>
-        </section>
-
-        <button class="btn btn-primary" type="button" id="save-settings">設定を保存する</button>
-
-        <section class="settings-block">
-          <h3>免責事項</h3>
-          <p class="hint">
-            本アプリが表示する期限および目安日数は一般的な参考情報であり、食品の実際の安全性を
-            保証するものではありません。実際の日持ちは、購入時の鮮度・開封の有無・保管温度等により
-            大きく変動します。喫食の可否は、必ずご自身で食品の状態（見た目・におい等）を確認して
-            ご判断ください。また、端末の状態により通知が遅延・不達となる場合があり、通知の到達
-            およびデータの保全を保証するものではありません。
-            本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
           </p>
         </section>
 
@@ -979,6 +957,11 @@
             データはこの端末の中だけに保存されます。機種変更やブラウザのデータ削除で消えるので、
             控えを取っておくと戻せます。
           </p>
+          <p class="hint">
+            控えには、食材・食べた捨てたの記録・買い物リストのほか、冷蔵庫の形と段ごとの温度、
+            部屋の温度、お知らせのタイミング、表示、覚えたバーコードなどの設定もまとめて入ります。
+            AI の設定（APIキー）は入りません。位置情報や通知の許可は、戻したあとに端末でもう一度聞かれます。
+          </p>
           <div class="settings-actions">
             <button class="btn btn-ghost" type="button" id="export-data">控えを書き出す</button>
             <label class="btn btn-ghost" for="import-data">控えから戻す</label>
@@ -1009,12 +992,52 @@
           <dl class="about">
             <dt>名前</dt><dd>冷蔵庫の地図</dd>
             <dt>版</dt><dd>${APP_VERSION}</dd>
-            <dt>保存先</dt><dd>この端末の中だけ（外部送信なし）</dd>
+            <dt>保存先</dt><dd>この端末の中だけ（天気予報を使うときだけ、おおよその位置を送ります）</dd>
             <dt>在庫</dt><dd>${state.items.length}件／記録 ${state.logs.length}件</dd>
             <dt>利用開始</dt><dd>${formatDate(state.startedAt)}</dd>
           </dl>
           <p class="hint">
             <a href="https://github.com/asaitoshiki/fridge-keeper" target="_blank" rel="noopener">ソースコード</a>
+          </p>
+        </section>
+
+        <section class="settings-block">
+          <h3>AI での入力補助</h3>
+          <p class="warn">
+            このアプリは端末内で完結し、データを外へ出しません。
+            AI を有効にすると、入力した食品名が下の接続先へ送られます。
+            既定は無効で、有効にしない限り通信は起きません。
+          </p>
+          <label class="check-row">
+            <input type="checkbox" id="ai-enabled" ${ai.enabled ? 'checked' : ''}>
+            <span>AI を有効にする</span>
+          </label>
+          <div class="field">
+            <label for="ai-endpoint">接続先</label>
+            <input id="ai-endpoint" type="url" placeholder="https://..." value="${esc(ai.endpoint)}" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-model">モデル</label>
+            <input id="ai-model" type="text" value="${esc(ai.model)}" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ai-key">APIキー</label>
+            <input id="ai-key" type="password" value="${esc(ai.apiKey)}" autocomplete="off">
+          </div>
+          <p class="hint">通信部分はまだ実装されていないため、有効にしても動作しません。</p>
+        </section>
+
+        <button class="btn btn-primary" type="button" id="save-settings">AI の設定を保存する</button>
+
+        <section class="settings-block">
+          <h3>免責事項</h3>
+          <p class="hint">
+            本アプリが表示する期限および目安日数は一般的な参考情報であり、食品の実際の安全性を
+            保証するものではありません。実際の日持ちは、購入時の鮮度・開封の有無・保管温度等により
+            大きく変動します。喫食の可否は、必ずご自身で食品の状態（見た目・におい等）を確認して
+            ご判断ください。また、端末の状態により通知が遅延・不達となる場合があり、通知の到達
+            およびデータの保全を保証するものではありません。
+            本アプリの利用により生じたいかなる損害についても、開発者は一切の責任を負いません。
           </p>
         </section>
       </div>`;
@@ -1221,14 +1244,28 @@
 
     bindSettings();
 
+    /* お知らせはその場で反映する。保存ボタンを押し忘れて変わらない、を避ける */
+    const notifyEnabled = root.querySelector('#notify-enabled');
+    if (notifyEnabled) {
+      notifyEnabled.addEventListener('change', () => {
+        state.notify.enabled = notifyEnabled.checked;
+        saveState(state);
+        render();
+      });
+    }
+    bindTimingRows(root.querySelector('[data-timing-scope="global"]'), () => state.notify.timings, (list) => {
+      /* 全体の設定は一つは残す。全部消したいときは「知らせる」を外す */
+      state.notify.timings = list.length > 0 ? list : state.notify.timings;
+      /* 一つしか持たなかった頃の項目も、いちばん早いタイミングに合わせておく（Android 版が読む） */
+      state.notify.daysBefore = state.notify.timings[0].daysBefore;
+      state.notify.time = state.notify.timings[0].time;
+      saveState(state);
+      render();
+    });
+
     const saveSettings = root.querySelector('#save-settings');
     if (saveSettings) {
       saveSettings.addEventListener('click', () => {
-        state.notify = {
-          enabled: root.querySelector('#notify-enabled').checked,
-          time: root.querySelector('#notify-time').value || '08:00',
-          daysBefore: Math.min(14, Math.max(0, Number(root.querySelector('#notify-days').value) || 0)),
-        };
         AiAssist.saveSettings({
           enabled: root.querySelector('#ai-enabled').checked,
           endpoint: root.querySelector('#ai-endpoint').value.trim(),
@@ -2307,24 +2344,14 @@
         <p class="scan-result" id="editor-note" hidden></p>
         <div class="hint" id="f-hint"></div>
 
-        <div class="field-pair">
-          <div class="field">
-            <label for="f-notify-days">知らせる <span class="optional">この食材だけ</span></label>
-            <select id="f-notify-days" name="notifyDaysBefore">
-              <option value="">設定どおり</option>
-              <option value="0">当日</option>
-              <option value="1">1日前</option>
-              <option value="2">2日前</option>
-              <option value="3">3日前</option>
-              <option value="5">5日前</option>
-              <option value="7">7日前</option>
-              <option value="off">知らせない</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="f-notify-time">時刻</label>
-            <input id="f-notify-time" name="notifyTime" type="time">
-          </div>
+        <div class="field">
+          <label for="f-notify-mode">知らせる <span class="optional">この食材だけ</span></label>
+          <select id="f-notify-mode">
+            <option value="default">設定どおり</option>
+            <option value="custom">この食材だけ決める</option>
+            <option value="off">知らせない</option>
+          </select>
+          <div id="f-timings"></div>
         </div>
 
         <div class="field">
@@ -2360,6 +2387,7 @@
     });
     /* カテゴリで選べる状態が変わる（野菜なら丸ごと・切った、牛乳なら開けた） */
     el.querySelector('#f-category').addEventListener('change', () => fillConditions(el.querySelector('#f-condition').value));
+    el.querySelector('#f-notify-mode').addEventListener('change', renderEditorTimings);
     /* 「キャベツ半玉」のように打ったら、切ってあるものとして始める */
     el.querySelector('#f-name').addEventListener('input', () => {
       const cond = el.querySelector('#f-condition');
@@ -2402,8 +2430,11 @@
     dialog.querySelector('#f-wrap').value = item && item.wrapped === false ? 'off' : 'on';
     dialog.querySelector('#f-jan').value = item && item.janCode ? item.janCode : '';
     /* 既定と同じなら空にしておく。わざわざこの食材だけ変えた、が見て分かるようにする */
-    dialog.querySelector('#f-notify-days').value = notifyDaysValue(item);
-    dialog.querySelector('#f-notify-time').value = item && item.notifyTime ? item.notifyTime : '';
+    /* 知らせるタイミング。null=設定どおり / []=知らせない / 並び=この食材だけ */
+    const own = item ? item.notifyTimings : null;
+    editorTimings = Array.isArray(own) && own.length > 0 ? own.map((t) => ({ ...t })) : [];
+    dialog.querySelector('#f-notify-mode').value = !Array.isArray(own) ? 'default' : own.length === 0 ? 'off' : 'custom';
+    renderEditorTimings();
     setEditorNote('');
 
     updateHint();
@@ -2442,6 +2473,30 @@
    * 期限日が空のときに、プリセットから導いた目安をその場で見せる。
    * 「入力しなくても管理される」ことが伝わらないと、期限入力が実質必須になってしまうため。
    */
+  /** 登録画面の、この食材だけのタイミング。「この食材だけ決める」のときだけ出す */
+  function renderEditorTimings() {
+    const box = dialog.querySelector('#f-timings');
+    if (dialog.querySelector('#f-notify-mode').value !== 'custom') {
+      box.innerHTML = '';
+      return;
+    }
+    if (editorTimings.length === 0) editorTimings = state.notify.timings.map((t) => ({ ...t }));
+    box.innerHTML = timingRows(editorTimings, 'item');
+    bindTimingRows(box.querySelector('.timing-list'), () => editorTimings, (list) => {
+      editorTimings = list;
+      /* 全部消したら、この食材は知らせない */
+      if (list.length === 0) dialog.querySelector('#f-notify-mode').value = 'off';
+      renderEditorTimings();
+    });
+  }
+
+  function editorNotifyTimings() {
+    const mode = dialog.querySelector('#f-notify-mode').value;
+    if (mode === 'default') return null;
+    if (mode === 'off') return [];
+    return cleanTimings(editorTimings);
+  }
+
   function updateHint() {
     const hint = dialog.querySelector('#f-hint');
     const probe = editorProbe();
@@ -2496,8 +2551,10 @@
       quantity: Math.max(1, Number(f.quantity.value) || 1),
       memo: f.memo.value.trim() || null,
       janCode: f.janCode.value || null,
-      notifyDaysBefore: parseNotifyDays(f.notifyDaysBefore.value),
-      notifyTime: f.notifyTime.value || null,
+      notifyTimings: editorNotifyTimings(),
+      /* 一つしか選べなかった頃の項目。いまは notifyTimings を使う */
+      notifyDaysBefore: null,
+      notifyTime: null,
     };
     /* 状態と、その状態になった日。状態を変えていなければ日付はそのまま */
     const probe = editorProbe();
@@ -3263,37 +3320,115 @@
     return id ? state.items.find((i) => i.id === id) || null : null;
   }
 
-  /** 選択欄の値。null は「設定どおり」、-1 は「知らせない」 */
-  function notifyDaysValue(item) {
-    if (!item || item.notifyDaysBefore === null || item.notifyDaysBefore === undefined) return '';
-    return item.notifyDaysBefore < 0 ? 'off' : String(item.notifyDaysBefore);
+  /* --- 知らせるタイミング ------------------------------------------------------ */
+
+  const NOTIFY_DAY_OPTIONS = [0, 1, 2, 3, 5, 7, 14];
+  const notifyDayLabel = (n) => (n === 0 ? '当日' : n === 1 ? '前日' : `${n}日前`);
+
+  /**
+   * タイミングの並びの入力欄。scope は 'global'（アプリ全体）か 'item'（登録画面の食材ごと）。
+   * 変えたらその場で反映する。日数と時刻を選ぶ行が並び、最後に「追加」がある。
+   */
+  function timingRows(timings, scope) {
+    return `
+      <div class="timing-list" data-timing-scope="${scope}">
+        ${timings.map((t, index) => `
+          <div class="timing-row">
+            <select data-timing-days="${index}" aria-label="何日前">
+              ${NOTIFY_DAY_OPTIONS.map((n) => `<option value="${n}" ${t.daysBefore === n ? 'selected' : ''}>${notifyDayLabel(n)}</option>`).join('')}
+            </select>
+            <input type="time" data-timing-time="${index}" value="${t.time}" aria-label="時刻">
+            <button class="icon-btn timing-del" type="button" data-timing-del="${index}" aria-label="このタイミングを消す"
+                    ${timings.length <= 1 && scope === 'global' ? 'disabled' : ''}>×</button>
+          </div>`).join('')}
+        <button class="btn btn-ghost timing-add" type="button" data-timing-add>＋ タイミングを追加</button>
+      </div>`;
   }
 
-  function parseNotifyDays(raw) {
-    if (raw === '') return null;
-    if (raw === 'off') return -1;
-    return Number(raw);
+  /** 次に足すタイミング。まだ無い組み合わせのうち、よく使う順から選ぶ */
+  function nextTiming(timings) {
+    const candidates = [[1, '20:00'], [0, '08:00'], [3, '08:00'], [2, '08:00'], [7, '08:00'], [5, '08:00'], [14, '08:00']];
+    const free = candidates.find(([d, t]) => !timings.some((x) => x.daysBefore === d && x.time === t));
+    return free ? { daysBefore: free[0], time: free[1] } : { daysBefore: 0, time: '12:00' };
   }
 
   /**
-   * この食材を何日前に知らせるか。
-   * 食材ごとの設定があればそれを、なければアプリ全体の設定を使う。
-   * -1 はこの食材だけ知らせない指定。
+   * タイミングの入力欄の操作をつなぐ。並びを読み直して onChange に渡す。
+   * 並びは日数の多い順に整え直すので、行の番号は描き直すたびに変わる。
    */
+  function bindTimingRows(container, getTimings, onChange) {
+    if (!container) return;
+    const read = () => getTimings().map((t) => ({ ...t }));
+    container.querySelectorAll('[data-timing-days]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const list = read();
+        list[Number(el.dataset.timingDays)].daysBefore = Number(el.value);
+        onChange(cleanTimings(list));
+      });
+    });
+    container.querySelectorAll('[data-timing-time]').forEach((el) => {
+      el.addEventListener('change', () => {
+        if (!el.value) return;
+        const list = read();
+        list[Number(el.dataset.timingTime)].time = el.value;
+        onChange(cleanTimings(list));
+      });
+    });
+    container.querySelectorAll('[data-timing-del]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const list = read();
+        list.splice(Number(el.dataset.timingDel), 1);
+        onChange(cleanTimings(list));
+      });
+    });
+    const add = container.querySelector('[data-timing-add]');
+    if (add) add.addEventListener('click', () => onChange(cleanTimings([...read(), nextTiming(read())])));
+  }
+
+  /** この食材の知らせるタイミング。食材ごとに決めていなければアプリ全体の設定 */
+  function timingsFor(item) {
+    return Array.isArray(item.notifyTimings) ? item.notifyTimings : state.notify.timings;
+  }
+
+  /** いちばん早く知らせるのが何日前か。「もうすぐ期限」に入れるかの境目に使う */
+  function noticeDaysFor(item) {
+    const list = timingsFor(item);
+    return list.length === 0 ? -1 : Math.max(...list.map((t) => t.daysBefore));
+  }
+
+  /**
+   * これから7日のうちに知らせる予定。時刻ごとにまとめる。
+   * Web では鳴らせないが、いつ何が知らされるかをお知らせの画面で見られるようにする。
+   */
+  function upcomingNotices(today) {
+    if (!state.notify.enabled) return [];
+    const now = Date.now();
+    const limit = now + 7 * 24 * 60 * 60 * 1000;
+    const slots = new Map();
+    state.items.forEach((item) => {
+      const u = urgencyOf(item, kindFor(item), today);
+      if (!u.date || u.days < 0) return;
+      timingsFor(item).forEach((t) => {
+        const day = addDays(u.date, -t.daysBefore);
+        const at = new Date(`${day}T${t.time}:00`).getTime();
+        if (!(at >= now && at <= limit)) return;
+        const key = `${day} ${t.time}`;
+        if (!slots.has(key)) slots.set(key, { day, time: t.time, at, entries: [] });
+        slots.get(key).entries.push({ item, days: t.daysBefore, u });
+      });
+    });
+    return [...slots.values()].sort((a, b) => a.at - b.at);
+  }
+
   /**
    * この食材を、残り days 日の時点で知らせるか。
    * 食材ごとに「知らせない」を選べるので、全体の設定だけでは決められない。
    */
   function wantsNotice(item, days) {
     if (days === null) return false;
-    const threshold = notifyDaysFor(item);
+    const threshold = noticeDaysFor(item);
     if (threshold < 0) return false;
     return days <= threshold;
-  }
-
-  function notifyDaysFor(item) {
-    if (item.notifyDaysBefore === null || item.notifyDaysBefore === undefined) return state.notify.daysBefore;
-    return item.notifyDaysBefore;
   }
 
   function esc(text) {

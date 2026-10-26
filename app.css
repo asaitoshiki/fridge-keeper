@@ -2600,3 +2600,26 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
   padding: 7px 10px;
   font-size: 15px;
 }
+
+/* 知らせるタイミングの並び。日数と時刻を一行ずつ */
+.timing-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.timing-row { display: flex; align-items: center; gap: 8px; }
+.timing-row select, .timing-row input {
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 15px;
+  min-height: 42px;
+}
+.timing-row select { flex: 0 0 auto; }
+.timing-row input { flex: 1 1 auto; min-width: 0; }
+.timing-del { flex: 0 0 auto; }
+.timing-del:disabled { opacity: .3; cursor: default; }
+.timing-add { align-self: flex-start; }
+
+/* これからのお知らせ */
+.upcoming li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.upcoming-at { font-weight: 700; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.upcoming-items { font-size: 13px; color: var(--ink-2); }
+.upcoming-items i { font-style: normal; color: var(--ink-3); margin-left: 4px; font-size: 12px; }
