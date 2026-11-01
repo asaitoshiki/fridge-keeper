@@ -2623,3 +2623,6 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 .upcoming-at { font-weight: 700; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .upcoming-items { font-size: 13px; color: var(--ink-2); }
 .upcoming-items i { font-style: normal; color: var(--ink-3); margin-left: 4px; font-size: 12px; }
+
+/* 提案を「このままにする」×。移すの横に小さく置く */
+.advice-skip { flex: 0 0 auto; color: var(--ink-3); }

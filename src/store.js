@@ -292,6 +292,8 @@ function emptyState() {
     layout: zoneLayout(),
     /* 温度帯だけの形で、どの場所があるか（冷蔵・チルド・野菜室・冷凍・常温） */
     zoneIds: DEFAULT_ZONES.slice(),
+    /* 「このままにする」で閉じた置き場所の提案。食材の id → 勧めていた段の id */
+    dismissedAdvice: {},
     /* 冷蔵庫の中の分け方。段まで分けていたときの形は detailed に控えておく */
     layoutMode: 'ZONES',
     detailed: null,
@@ -427,6 +429,11 @@ function normalize(parsed) {
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   normalizeLayout(state.layout);
+  if (!state.dismissedAdvice || typeof state.dismissedAdvice !== 'object') state.dismissedAdvice = {};
+  /* もう無い食材の分は捨てておく */
+  Object.keys(state.dismissedAdvice).forEach((id) => {
+    if (!state.items.some((item) => item.id === id)) delete state.dismissedAdvice[id];
+  });
   if (!Array.isArray(state.zoneIds) || state.zoneIds.length === 0) {
     state.zoneIds = state.layoutMode === 'ZONES' ? zoneIdsOf(state.layout) : DEFAULT_ZONES.slice();
   }

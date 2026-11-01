@@ -422,8 +422,26 @@
       .sort((a, b) => (a.here === null ? 999 : a.here) - (b.here === null ? 999 : b.here));
   }
 
+  /**
+   * 出す提案。「このままにする」で閉じた提案は、同じ食材に同じ場所を勧めているあいだは出さない。
+   * 季節や状態が変わって勧める場所が変われば、別の提案としてまた出す。
+   */
+  function visibleSuggestions() {
+    return placementSuggestions().filter((x) => state.dismissedAdvice[x.item.id] !== x.target);
+  }
+
+  function dismissAdvice(ids) {
+    const list = placementSuggestions().filter((x) => ids.includes(x.item.id));
+    list.forEach((x) => { state.dismissedAdvice[x.item.id] = x.target; });
+    saveState(state);
+    render();
+    toast(list.length === 1
+      ? `${list[0].item.name}はこのままにします`
+      : `${list.length}件の提案を閉じました`);
+  }
+
   function placementAdvice(today) {
-    const list = placementSuggestions();
+    const list = visibleSuggestions();
     if (list.length === 0) return '';
     const lead = `部屋はいま約${roomInfo().room}℃です。`;
     return `
@@ -439,10 +457,15 @@
                 <span class="advice-why">${esc(findCompartment(state.layout, x.item.compartmentId).name)} → <b>${esc(findCompartment(state.layout, x.target).name)}</b>${x.reason ? `・${esc(x.reason)}` : ''}</span>
               </span>
               <button class="mini" type="button" data-advice-move="${x.item.id}">移す</button>
+              <button class="icon-btn advice-skip" type="button" data-advice-skip="${x.item.id}"
+                      aria-label="${esc(x.item.name)}はこのままにする" title="このままにする">×</button>
             </li>`).join('')}
         </ul>
         ${list.length > 4 ? `<span class="advice-why">ほか${list.length - 4}件</span>` : ''}
-        ${list.length > 1 ? `<button class="btn btn-ghost advice-all" type="button" id="advice-all">${list.length}件ともおすすめに移す</button>` : ''}
+        <div class="advice-actions">
+          ${list.length > 1 ? `<button class="btn btn-ghost" type="button" id="advice-all">${list.length}件ともおすすめに移す</button>` : ''}
+          <button class="btn btn-ghost" type="button" id="advice-skip-all">${list.length > 1 ? '全部このままにする' : 'このままにする'}</button>
+        </div>
       </section>`;
   }
 
@@ -2732,7 +2755,12 @@
       el.addEventListener('click', () => moveToSuggested([el.dataset.adviceMove]));
     });
     const adviceAll = root.querySelector('#advice-all');
-    if (adviceAll) adviceAll.addEventListener('click', () => moveToSuggested(placementSuggestions().map((x) => x.item.id)));
+    if (adviceAll) adviceAll.addEventListener('click', () => moveToSuggested(visibleSuggestions().map((x) => x.item.id)));
+    root.querySelectorAll('[data-advice-skip]').forEach((el) => {
+      el.addEventListener('click', () => dismissAdvice([el.dataset.adviceSkip]));
+    });
+    const skipAll = root.querySelector('#advice-skip-all');
+    if (skipAll) skipAll.addEventListener('click', () => dismissAdvice(visibleSuggestions().map((x) => x.item.id)));
 
     root.querySelectorAll('[data-room-mode]').forEach((el) => {
       el.addEventListener('click', () => {
