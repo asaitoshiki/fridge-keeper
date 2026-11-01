@@ -64,26 +64,80 @@ function detailedLayout() {
  * 登録のたびに段を選ぶ手間のほうが重いので、既定はここまでにしておく。
  * 段まで分けたい人は、設定から細かい形に切り替えられる。
  */
-function zoneLayout() {
-  return [
-    makeUnit({
-      id: 'unit-fridge',
-      name: '冷蔵庫',
-      type: 'FRIDGE',
-      doorStyle: 'NONE',
-      compartments: [
-        comp('z-fridge', '冷蔵室', 'FRIDGE', 'SHELF', 100, 150),
-        comp('z-veg', '野菜室', 'VEGETABLE_DRAWER', 'DRAWER', 100, 96),
-        comp('z-freezer', '冷凍室', 'FREEZER', 'DRAWER', 100, 96),
-      ],
-    }),
-    makeUnit({
-      id: 'unit-pantry',
-      name: '常温の棚',
-      type: 'SHELF',
-      compartments: [comp('z-pantry', '常温', 'ROOM_TEMP', 'SHELF', 100, 96)],
-    }),
-  ];
+/**
+ * 温度帯だけの形で選べる場所。冷蔵庫によって、野菜室が無い・チルド室がある、などが違う。
+ * id は決まった値にしておく。場所を足したり外したりしても、残った場所の食材がずれないように。
+ * チルド室は冷蔵の中の0℃前後の場所として持つ（種類は冷蔵、温度だけ低い）。
+ */
+const ZONE_DEFS = [
+  { id: 'z-fridge', name: '冷蔵室', kind: 'FRIDGE', form: 'SHELF', height: 150, unit: 'unit-fridge', required: true },
+  { id: 'z-chilled', name: 'チルド室', kind: 'FRIDGE', form: 'DRAWER', height: 72, unit: 'unit-fridge', temp: 0 },
+  { id: 'z-veg', name: '野菜室', kind: 'VEGETABLE_DRAWER', form: 'DRAWER', height: 96, unit: 'unit-fridge' },
+  { id: 'z-freezer', name: '冷凍室', kind: 'FREEZER', form: 'DRAWER', height: 96, unit: 'unit-fridge' },
+  { id: 'z-pantry', name: '常温', kind: 'ROOM_TEMP', form: 'SHELF', height: 96, unit: 'unit-pantry' },
+];
+const DEFAULT_ZONES = ['z-fridge', 'z-veg', 'z-freezer', 'z-pantry'];
+
+function zoneCompartment(def) {
+  const created = comp(def.id, def.name, def.kind, def.form, 100, def.height);
+  if (Number.isFinite(def.temp)) created.temp = def.temp;
+  return created;
+}
+
+/**
+ * 温度帯だけで分けた冷蔵庫。これが既定。
+ *
+ * 期限の目安が変わるのは温度帯（冷蔵・野菜室・冷凍・常温）だけで、
+ * 段まで記録しても冷蔵庫の中の物は毎日動くので、すぐ実物とずれる。
+ * 登録のたびに段を選ぶ手間のほうが重いので、既定はここまでにしておく。
+ * どの場所があるかは ids で選ぶ。段まで分けたい人は、設定から細かい形に切り替えられる。
+ */
+function zoneLayout(ids) {
+  const chosen = new Set(Array.isArray(ids) && ids.length > 0 ? ids : DEFAULT_ZONES);
+  chosen.add('z-fridge');
+  const inUnit = (unit) => ZONE_DEFS.filter((d) => d.unit === unit && chosen.has(d.id)).map(zoneCompartment);
+  const layout = [makeUnit({ id: 'unit-fridge', name: '冷蔵庫', type: 'FRIDGE', doorStyle: 'NONE', compartments: inUnit('unit-fridge') })];
+  const pantry = inUnit('unit-pantry');
+  if (pantry.length > 0) layout.push(makeUnit({ id: 'unit-pantry', name: '常温の棚', type: 'SHELF', compartments: pantry }));
+  return layout;
+}
+
+/** いまの温度帯だけの形に、どの場所があるか */
+function zoneIdsOf(layout) {
+  const ids = allCompartments(layout).map((c) => c.id);
+  return ZONE_DEFS.filter((d) => ids.includes(d.id)).map((d) => d.id);
+}
+
+/**
+ * 温度帯だけの形で、場所を足すか外す。外すときは中の食材を近い場所へ移す（無ければ「買ってきたもの」）。
+ * 足すときは決まった並び（冷蔵・チルド・野菜室・冷凍・常温）の位置に入れる。冷蔵室は外せない。
+ * 戻り値は、外したときに移した食材の数。
+ */
+function setZoneEnabled(state, id, on) {
+  const def = ZONE_DEFS.find((d) => d.id === id);
+  if (!def || def.required || state.layoutMode !== 'ZONES') return 0;
+  const has = Boolean(findCompartment(state.layout, id));
+  let moved = 0;
+  if (on && !has) {
+    let unit = state.layout.find((u) => u.id === def.unit);
+    if (!unit) {
+      unit = makeUnit({ id: 'unit-pantry', name: '常温の棚', type: 'SHELF', compartments: [] });
+      state.layout.push(unit);
+    }
+    const order = ZONE_DEFS.map((d) => d.id);
+    const at = unit.compartments.findIndex((c) => order.indexOf(c.id) > order.indexOf(id));
+    unit.compartments.splice(at < 0 ? unit.compartments.length : at, 0, zoneCompartment(def));
+  } else if (!on && has) {
+    const unit = findUnitOf(state.layout, id);
+    unit.compartments = unit.compartments.filter((c) => c.id !== id);
+    state.items.filter((item) => item.compartmentId === id).forEach((item) => {
+      item.compartmentId = placeFor(state.layout, def.kind, item);
+      moved += 1;
+    });
+    if (unit.compartments.length === 0) state.layout = state.layout.filter((u) => u !== unit);
+  }
+  state.zoneIds = zoneIdsOf(state.layout);
+  return moved;
 }
 
 /** 冷蔵庫の中の分け方。ZONES=温度帯だけ（既定） / DETAILED=段まで細かく */
@@ -101,20 +155,39 @@ function firstCompartmentOfKind(layout, kind) {
   return main ? main.id : null;
 }
 
+/* その種類の場所が無いときに、代わりに入れる種類。野菜室の無い冷蔵庫では野菜は冷蔵室へ */
+const KIND_FALLBACK = { VEGETABLE_DRAWER: 'FRIDGE', FRIDGE: 'VEGETABLE_DRAWER' };
+
+/**
+ * 食材を入れる段。その種類の場所が無ければ近い種類の場所にする。無ければ null（買ってきたもの）。
+ * 肉と魚は、冷蔵の中に2℃以下の場所（チルド室など）があればそちらを選ぶ。
+ */
+function placeFor(layout, kind, item) {
+  if (!kind) return null;
+  if (kind === 'FRIDGE' && item && item.category === 'MEAT_FISH') {
+    const chilled = allCompartments(layout)
+      .filter((c) => c.kind === 'FRIDGE' && Number.isFinite(c.temp) && c.temp <= 2)
+      .sort((a, b) => a.temp - b.temp)[0];
+    if (chilled) return chilled.id;
+  }
+  return firstCompartmentOfKind(layout, kind)
+    || (KIND_FALLBACK[kind] ? firstCompartmentOfKind(layout, KIND_FALLBACK[kind]) : null);
+}
+
 /**
  * 温度帯だけに切り替える。
  * 細かい形と、食材がどの段にあったかは控えておくので、戻せばそのまま元に戻る。
  */
 function useZones(state) {
   if (state.layoutMode === 'ZONES') return;
-  const zones = zoneLayout();
+  const zones = zoneLayout(state.zoneIds);
   state.detailed = {
     layout: state.layout,
     placements: Object.fromEntries(state.items.map((item) => [item.id, item.compartmentId])),
   };
   state.items.forEach((item) => {
     const kind = kindOf(state.layout, item);
-    item.compartmentId = kind ? firstCompartmentOfKind(zones, kind) : null;
+    item.compartmentId = kind ? placeFor(zones, kind, item) : null;
   });
   state.layout = zones;
   state.layoutMode = 'ZONES';
@@ -136,7 +209,7 @@ function useDetailed(state) {
       return;
     }
     const before = findCompartment(layout, placements[item.id]);
-    item.compartmentId = before && before.kind === kind ? before.id : firstCompartmentOfKind(layout, kind);
+    item.compartmentId = before && before.kind === kind ? before.id : placeFor(layout, kind, item);
   });
   state.layout = layout;
   state.layoutMode = 'DETAILED';
@@ -217,6 +290,8 @@ function emptyState() {
     version: 2,
     items: [],
     layout: zoneLayout(),
+    /* 温度帯だけの形で、どの場所があるか（冷蔵・チルド・野菜室・冷凍・常温） */
+    zoneIds: DEFAULT_ZONES.slice(),
     /* 冷蔵庫の中の分け方。段まで分けていたときの形は detailed に控えておく */
     layoutMode: 'ZONES',
     detailed: null,
@@ -352,6 +427,9 @@ function normalize(parsed) {
   if (!state.startedAt) state.startedAt = todayIso();
   if (typeof state.bestStreak !== 'number') state.bestStreak = 0;
   normalizeLayout(state.layout);
+  if (!Array.isArray(state.zoneIds) || state.zoneIds.length === 0) {
+    state.zoneIds = state.layoutMode === 'ZONES' ? zoneIdsOf(state.layout) : DEFAULT_ZONES.slice();
+  }
   if (!state.detailed || !Array.isArray(state.detailed.layout)) state.detailed = null;
   if (state.detailed) normalizeLayout(state.detailed.layout);
 
@@ -692,7 +770,7 @@ function withSample(state) {
   const placeSample = (layout, at) => {
     if (findCompartment(layout, at)) return at;
     const original = findCompartment(detailedLayout(), at);
-    return original ? firstCompartmentOfKind(layout, original.kind) : null;
+    return original ? placeFor(layout, original.kind, null) : null;
   };
   const today = todayIso();
   const sample = [

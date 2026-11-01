@@ -29,6 +29,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import org.json.JSONObject
 
 /**
  * ウェブ版をそのまま動かす画面。
@@ -152,6 +156,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Google のコードスキャナーで読む。専用の画面を端末が出すので、このアプリはカメラの権限を使わない。
+     * 食品の JAN（EAN-13 / EAN-8 / UPC）だけに絞り、遠いときは自動で寄ってもらう。
+     */
+    private fun startCodeScan() {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E)
+            .enableAutoZoom()
+            .build()
+        runCatching {
+            GmsBarcodeScanning.getClient(this, options).startScan()
+                .addOnSuccessListener { barcode -> sendBarcode(barcode.rawValue, "OK") }
+                .addOnCanceledListener { sendBarcode(null, "CANCELED") }
+                .addOnFailureListener { sendBarcode(null, "FAILED") }
+        }.onFailure { sendBarcode(null, "FAILED") }
+    }
+
+    private fun sendBarcode(value: String?, status: String) {
+        val text = if (value == null) "null" else JSONObject.quote(value)
+        webView.evaluateJavascript("window.fridgeBarcodeResult && window.fridgeBarcodeResult($text, '$status')", null)
+    }
+
     private fun hasPermission(permission: String) =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -183,6 +209,15 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun setDark(dark: Boolean) {
             runOnUiThread { applyBars(dark) }
+        }
+
+        /**
+         * バーコードを端末の読み取りで読む。結果は window.fridgeBarcodeResult(値, 状態) で返す。
+         * 状態は OK / CANCELED（やめた）/ FAILED（使えなかった。ウェブ版の読み取りに戻る）。
+         */
+        @JavascriptInterface
+        fun scanBarcode() {
+            runOnUiThread { startCodeScan() }
         }
     }
 

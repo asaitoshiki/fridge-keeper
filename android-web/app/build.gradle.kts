@@ -12,7 +12,7 @@ android {
         applicationId = "com.asaitoshiki.fridgemap"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
+        versionCode = 2
         versionName = "0.8.0"
     }
 
@@ -71,4 +71,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.webkit:webkit:1.12.1")
+    // バーコードの読み取り。Google Play 開発者サービスの読み取り画面を使う
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

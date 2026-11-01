@@ -132,3 +132,13 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 
 知らせるタイミングは並び（`state.notify.timings`、`[{daysBefore, time}]`）で、いくつでも持てる。並びは `cleanTimings()` で整える。
 食材ごとの `item.notifyTimings` は null=設定どおり / []=知らせない / 並び=その食材だけ。前の `notifyDaysBefore` / `notifyTime` は読み替え済みで、もう使わない。
+
+## 温度帯だけの形の場所
+
+温度帯だけの形でも、冷蔵室・チルド室・野菜室・冷凍室・常温のどれがあるかを選べる（`ZONE_DEFS`、`state.zoneIds`、`setZoneEnabled()`）。冷蔵室は外せない。
+食材を入れる段は `placeFor()` を通す。その種類の場所が無ければ近い場所（野菜室が無ければ冷蔵室）、肉と魚は2℃以下の冷蔵の段（チルド室）を選ぶ。
+
+## バーコード
+
+Android のアプリでは `FridgeAndroid.scanBarcode()` で Google のコードスキャナーを使い、結果は `window.fridgeBarcodeResult(値, 状態)` で返る。
+ブラウザでは BarcodeDetector があればそれ、無ければ同梱の ZXing（`src/vendor/`）で読む。外から何も落とさない。

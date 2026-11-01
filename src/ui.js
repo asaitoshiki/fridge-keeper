@@ -182,10 +182,10 @@
     return `
       <div class="pane-head">
         <div class="segmented">${seg('figure', '図')}${seg('expiry', '期限順')}</div>
-        ${/* 冷蔵庫の形は一度決めたら変えないので、入口は設定に置いてある */ ''}
+        ${/* 冷蔵庫の形は一度決めたら変えないので、ここからは設定の「冷蔵庫の形」へ案内するだけ */ ''}
         ${editingLayout
           ? `<button class="tab-action" type="button" id="toggle-layout" aria-pressed="true">編集を終える</button>`
-          : ''}
+          : `<button class="tab-action" type="button" id="goto-shape">形を変える</button>`}
       </div>`;
   }
 
@@ -359,6 +359,22 @@
    * いまの季節と地域で、置き場所を変えたほうがいい食材。
    * 夏になればたまねぎは常温より野菜室、のように、季節が変わると提案も変わる。
    */
+  /**
+   * この冷蔵庫で、その食材のおすすめに当たる段。
+   * おすすめの種類の場所が無ければ近い場所（野菜室が無ければ冷蔵室）、肉や魚はチルド室を選ぶ。
+   * 戻り値の better は、いまの段から移す意味があるか（種類が変わる、または肉や魚をチルドへ）。
+   */
+  function bestPlaceFor(item) {
+    const kind = kindFor(item);
+    const best = bestStorageFor(item);
+    if (!best) return null;
+    const target = placeFor(state.layout, best, item);
+    if (!target || target === item.compartmentId) return null;
+    const targetKind = findCompartment(state.layout, target).kind;
+    const better = kind !== targetKind || item.category === 'MEAT_FISH';
+    return { target, kind: targetKind, better };
+  }
+
   function placementSuggestions() {
     const today = todayIso();
     /* その場所に置いたときの残り日数。切った・開けたなどの状態も含めて比べる */
@@ -371,7 +387,9 @@
         const kind = kindFor(item);
         if (!kind) return null;
         const here = daysAt(item, kind);
-        let best = bestStorageFor(item);
+        const bestPlace = bestPlaceFor(item);
+        let best = bestPlace && bestPlace.better ? bestPlace.kind : null;
+        let target = bestPlace && bestPlace.better ? bestPlace.target : null;
         const condition = conditionOf(item);
         let reason = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
         /**
@@ -384,16 +402,20 @@
           const poor = here !== null && usualDays > 0 && (here === 0 || (here <= 2 && usualDays >= here * 3));
           if (!usual || usual === kind || !poor) return null;
           best = usual;
+          target = placeFor(state.layout, usual, item);
           reason = here === 0
             ? `${STORAGE_LABELS[kind]}には向きません。`
             : `${STORAGE_LABELS[kind]}だと目安が${here}日と短くなります。`;
         }
-        if (best === kind) return null;
+        if (!target || target === item.compartmentId) return null;
+        /* 同じ冷蔵の中でチルド室へ移すときは、温度が低いことを理由に言う */
+        if (findCompartment(state.layout, target).kind === kind) {
+          reason = `${findCompartment(state.layout, target).name}は温度が低いので、肉や魚が長持ちしやすいです。`;
+        }
         /* 移すと目安が短くなる提案はしない。長持ちさせるための提案なので */
-        const there = daysAt(item, best);
+        const there = daysAt({ ...item, compartmentId: target }, best);
         if (here !== null && there !== null && there < here) return null;
-        const target = firstCompartmentOfKind(state.layout, best);
-        return target ? { item, kind, best, target, reason, here } : null;
+        return { item, kind, best, target, reason, here };
       })
       .filter(Boolean)
       /* いまの場所ですぐ傷むものから先に見せる */
@@ -414,7 +436,7 @@
               ${x.item.icon ? `<span class="advice-icon" aria-hidden="true">${x.item.icon}</span>` : ''}
               <span class="advice-main">
                 <span class="advice-name">${esc(x.item.name)}</span>
-                <span class="advice-why">${STORAGE_LABELS[x.kind]} → <b>${STORAGE_LABELS[x.best]}</b>${x.reason ? `・${esc(x.reason)}` : ''}</span>
+                <span class="advice-why">${esc(findCompartment(state.layout, x.item.compartmentId).name)} → <b>${esc(findCompartment(state.layout, x.target).name)}</b>${x.reason ? `・${esc(x.reason)}` : ''}</span>
               </span>
               <button class="mini" type="button" data-advice-move="${x.item.id}">移す</button>
             </li>`).join('')}
@@ -884,6 +906,55 @@
 
     return `
       <div class="settings-pane">
+        <section class="settings-block" id="shape-settings">
+          <h3>冷蔵庫の形</h3>
+          <div class="seg seg-wrap">
+            ${Object.entries(LAYOUT_MODE_LABELS).map(([key, label]) => `
+              <button class="seg-btn" type="button" data-layout-mode="${key}"
+                      aria-pressed="${state.layoutMode === key}">${label}${key === 'ZONES' ? '（おすすめ）' : ''}</button>`).join('')}
+          </div>
+          ${state.layoutMode === 'ZONES' ? `
+          <p class="hint">
+            冷蔵・チルド・野菜室・冷凍・常温のうち、うちにある場所だけで分けます。期限の目安が変わるのはこの区分だけなので、
+            ふだんはこれで足ります。登録のときに段を選ぶ手間もかかりません。
+          </p>
+          <span class="state-label">うちの冷蔵庫にある場所</span>
+          <div class="state-chips">
+            ${ZONE_DEFS.map((d) => `
+              <button class="state-chip" type="button" data-zone="${d.id}"
+                      aria-pressed="${Boolean(findCompartment(state.layout, d.id))}" ${d.required ? 'disabled' : ''}>${d.name}</button>`).join('')}
+          </div>
+          <p class="hint">野菜室が無ければ野菜は冷蔵室へ、チルド室があれば肉と魚はチルド室へ入れます。
+            場所ごとの温度は「冷蔵庫の中の温度」で変えられます（チルド室は0℃にしてあります）。</p>
+          <p class="hint">「段まで細かく」にすると、棚やドアポケット、扉の開き方まで実物に合わせて描けます。</p>
+          ` : `
+          <p class="hint">
+            段の数・名前・大きさ・色・扉・ドアポケットを変えられます。
+            冷蔵庫は買い替えるまで変わらないので、最初に一度だけ整えておけば足ります。
+            「温度帯だけ」に戻しても、この形は控えておくので、あとでそのまま戻せます。
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
+            <button class="btn btn-ghost" type="button" id="pick-shape">型から選ぶ</button>
+          </div>
+          <div class="unit-doors">
+            ${state.layout.map((u) => `
+              <div class="unit-door-row">
+                <span class="unit-door-name">${esc(u.name)}<em>${u.compartments.length}段</em></span>
+                <div class="seg seg-wrap">
+                  ${Object.entries(DOOR_STYLE_LABELS).map(([key, label]) => `
+                    <button class="seg-btn" type="button" data-set-door="${u.id}" data-door-value="${key}"
+                            aria-pressed="${u.doorStyle === key}">${label}</button>`).join('')}
+                </div>
+              </div>`).join('')}
+          </div>
+          <p class="hint">扉は開けた状態で図に描きます。扉の無い棚やラックは「開かない」にします。</p>
+          `}
+        </section>
+
+        ${compartmentTempSettings()}
+        ${roomSettings()}
+
         <section class="settings-block">
           <h3>表示</h3>
           <div class="field-row">
@@ -910,46 +981,6 @@
           </p>
         </section>
 
-        ${roomSettings()}
-        ${compartmentTempSettings()}
-
-        <section class="settings-block">
-          <h3>冷蔵庫の中の分け方</h3>
-          <div class="seg seg-wrap">
-            ${Object.entries(LAYOUT_MODE_LABELS).map(([key, label]) => `
-              <button class="seg-btn" type="button" data-layout-mode="${key}"
-                      aria-pressed="${state.layoutMode === key}">${label}${key === 'ZONES' ? '（おすすめ）' : ''}</button>`).join('')}
-          </div>
-          ${state.layoutMode === 'ZONES' ? `
-          <p class="hint">
-            冷蔵・野菜室・冷凍・常温の4つに分けます。期限の目安が変わるのはこの区分だけなので、
-            ふだんはこれで足ります。登録のときに段を選ぶ手間もかかりません。
-          </p>
-          <p class="hint">「段まで細かく」にすると、棚やドアポケット、扉の開き方まで実物に合わせて描けます。</p>
-          ` : `
-          <p class="hint">
-            段の数・名前・大きさ・色・扉・ドアポケットを変えられます。
-            冷蔵庫は買い替えるまで変わらないので、最初に一度だけ整えておけば足ります。
-            「温度帯だけ」に戻しても、この形は控えておくので、あとでそのまま戻せます。
-          </p>
-          <div class="settings-actions">
-            <button class="btn btn-ghost" type="button" id="edit-layout">冷蔵庫の形を変える</button>
-            <button class="btn btn-ghost" type="button" id="pick-shape">型から選ぶ</button>
-          </div>
-          <div class="unit-doors">
-            ${state.layout.map((u) => `
-              <div class="unit-door-row">
-                <span class="unit-door-name">${esc(u.name)}<em>${u.compartments.length}段</em></span>
-                <div class="seg seg-wrap">
-                  ${Object.entries(DOOR_STYLE_LABELS).map(([key, label]) => `
-                    <button class="seg-btn" type="button" data-set-door="${u.id}" data-door-value="${key}"
-                            aria-pressed="${u.doorStyle === key}">${label}</button>`).join('')}
-                </div>
-              </div>`).join('')}
-          </div>
-          <p class="hint">扉は開けた状態で図に描きます。扉の無い棚やラックは「開かない」にします。</p>
-          `}
-        </section>
 
         <section class="settings-block">
           <h3>データ</h3>
@@ -1208,6 +1239,16 @@
         render();
       });
     });
+
+    const gotoShape = root.querySelector('#goto-shape');
+    if (gotoShape) {
+      gotoShape.addEventListener('click', () => {
+        view = 'settings';
+        render();
+        const block = root.querySelector('#shape-settings');
+        if (block) block.scrollIntoView({ block: 'start' });
+      });
+    }
 
     const toggle = root.querySelector('#toggle-layout');
     if (toggle) {
@@ -1918,15 +1959,22 @@
   function placeAtBest(id) {
     const item = findItem(id);
     if (!item) return;
-    const kind = kindFor(item);
-    const best = bestStorageFor(item);
-    const goal = kind ? (best && kind !== best ? best : null) : placementFor(item);
-    const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+    const target = placeTargetFor(item);
     if (!target) return;
     relocateItem(state.layout, item, target);
     saveState(state);
     render();
     toast(`${item.name}を${compartmentPath(state.layout, target)}に入れました`);
+  }
+
+  /**
+   * シートの「入れる・移す」の行き先。入れていないものはいつもの置き場所へ、
+   * 入れてあるものは、おすすめの段へ移す意味があるときだけ。
+   */
+  function placeTargetFor(item) {
+    if (!kindFor(item)) return placeFor(state.layout, placementFor(item), item);
+    const bestPlace = bestPlaceFor(item);
+    return bestPlace && bestPlace.better ? bestPlace.target : null;
   }
 
   /**
@@ -1937,8 +1985,7 @@
     const waiting = state.items.filter((i) => !findCompartment(state.layout, i.compartmentId));
     let placed = 0;
     waiting.forEach((item) => {
-      const goal = placementFor(item);
-      const target = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+      const target = placeFor(state.layout, placementFor(item), item);
       if (!target) return;
       relocateItem(state.layout, item, target);
       placed += 1;
@@ -2185,7 +2232,8 @@
     /* 手を加えたあとは、丸ごとのときのコツより状態ごとのコツを出す */
     const tip = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
     const lines = [];
-    if (best && kind && kind !== best) lines.push(`<b>${STORAGE_LABELS[best]}がおすすめです。</b>`);
+    const bestPlace = bestPlaceFor(item);
+    if (kind && bestPlace && bestPlace.better) lines.push(`<b>${compartmentPath(state.layout, bestPlace.target)}がおすすめです。</b>`);
     if (tip) lines.push(esc(tip));
     const tipEl = actionDialog.querySelector('#action-tip');
     tipEl.innerHTML = lines.join('');
@@ -2194,15 +2242,15 @@
     /* まだどこにも入れていない食材は、おすすめの場所へそのまま入れられるようにする */
     const place = actionDialog.querySelector('[data-act="place"]');
     /* 入れていないものは決め打ちの先へ、別の場所にあるものはおすすめが分かるときだけ移せるようにする */
-    const goal = kind ? (best && kind !== best ? best : null) : placementFor(item);
-    const goalHere = goal ? firstCompartmentOfKind(state.layout, goal) : null;
+    const goalHere = placeTargetFor(item);
+    const goal = goalHere ? findCompartment(state.layout, goalHere).kind : null;
     place.hidden = !goalHere;
     if (!place.hidden) {
-      const goalDays = estimateDaysFor(item, goal);
+      const goalDays = estimateDaysFor({ ...item, compartmentId: goalHere }, goal);
       actionDialog.querySelector('#place-label').textContent =
         `${compartmentPath(state.layout, goalHere)}に${kind ? '移す' : '入れる'}`;
       actionDialog.querySelector('#place-sub').textContent =
-        (goal === best ? 'おすすめの置き場所' : `${CATEGORY_LABELS[item.category]}のいつもの置き場所`)
+        (best ? 'おすすめの置き場所' : `${CATEGORY_LABELS[item.category]}のいつもの置き場所`)
         + (goalDays !== null && !item.expiryDate ? `。目安は${goalDays}日` : '');
     }
 
@@ -2734,6 +2782,29 @@
       });
     }
 
+    /* 温度帯だけの形で、場所を足すか外す。中に食材がある場所を外すときは、移す先を言ってから */
+    root.querySelectorAll('[data-zone]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.zone;
+        const on = !findCompartment(state.layout, id);
+        const def = ZONE_DEFS.find((d) => d.id === id);
+        const apply = () => {
+          const moved = setZoneEnabled(state, id, on);
+          saveState(state);
+          render();
+          toast(on ? `${def.name}を足しました` : `${def.name}をなくしました${moved > 0 ? `。中の${moved}件は近い場所に移しました` : ''}`);
+        };
+        const inside = state.items.filter((i) => i.compartmentId === id).length;
+        if (!on && inside > 0) {
+          const fallback = placeFor(state.layout.map((u) => ({ ...u, compartments: u.compartments.filter((c) => c.id !== id) })), def.kind, null);
+          const where = fallback ? compartmentPath(state.layout, fallback) : '「買ってきたもの」';
+          askConfirm(`${def.name}をなくしますか`, `中の${inside}件は${where}に移します。`, apply, 'なくす');
+        } else {
+          apply();
+        }
+      });
+    });
+
     /* 冷蔵庫の中の分け方。食材は同じ温度帯の段へ移すので、切り替えても消えない */
     root.querySelectorAll('[data-layout-mode]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -3106,6 +3177,21 @@
    * 確定はさせずに呼び出し側が人に見せて確かめる（読み違いは必ず起こる）。
    */
   async function openScan(mode, onResult) {
+    /**
+     * Android のアプリでは、バーコードは端末の読み取り（Google のコードスキャナー）に任せる。
+     * 専用の画面で、ピント合わせも斜めの読み取りもこちらよりずっと強い。
+     * 使えない端末では、下のいつもの読み取りに戻る。
+     */
+    const bridge = androidBridge();
+    if (mode === 'barcode' && bridge && bridge.scanBarcode) {
+      const jan = await nativeBarcode(bridge);
+      if (jan === 'CANCELED') return;
+      if (jan) {
+        onResult({ jan });
+        return;
+      }
+    }
+
     scanMode = mode;
     scanDone = onResult;
 
@@ -3125,8 +3211,8 @@
     scanDialog.querySelector('#scan-stage').hidden = false;
 
     const support = Scan.support();
-    if (mode === 'barcode' && !support.barcode) {
-      setScanNote('この端末ではバーコードの読み取りに対応していません。写真から読むか、数字を手で入れてください。');
+    if (mode === 'barcode') {
+      setScanNote('バーコードを枠の中に横向きに写してください。近づけすぎるとピントが合いません。');
     } else if (mode === 'expiry' && !support.text) {
       /* 文字認識を落としてくることは先に伝える。黙って通信するアプリにはしない */
       setScanNote('初回だけ文字認識の仕組みを読み込みます（約2MB）。読み込んだあとの処理は端末の中だけで行います。');
@@ -3157,7 +3243,27 @@
       return;
     }
 
-    if (scanMode === 'barcode' && support.barcode) startBarcodeLoop(video);
+    if (scanMode === 'barcode') startBarcodeLoop(video);
+  }
+
+  /**
+   * 端末のバーコード読み取りを呼んで、結果を待つ。
+   * 読めたら JAN、やめたら 'CANCELED'、使えなかったら null（いつもの読み取りに戻る）。
+   */
+  function nativeBarcode(bridge) {
+    return new Promise((resolve) => {
+      window.fridgeBarcodeResult = (value, status) => {
+        window.fridgeBarcodeResult = null;
+        if (status === 'CANCELED') resolve('CANCELED');
+        else resolve(value ? Scan.normalizeJan(value) : null);
+      };
+      try {
+        bridge.scanBarcode();
+      } catch (error) {
+        window.fridgeBarcodeResult = null;
+        resolve(null);
+      }
+    });
   }
 
   /** カメラが無いときは「読み取る」を伏せ、写真から読む道だけを残す */
@@ -3170,19 +3276,26 @@
     setScanNote(message);
   }
 
-  /** バーコードは連続で探す。枠に合った瞬間に進むほうが手数が少ない */
+  /**
+   * バーコードは連続で探す。枠に合った瞬間に進むほうが手数が少ない。
+   * ブラウザの読み取り（BarcodeDetector）があればそれを、無ければ同梱の読み取りを使う。
+   * 同梱のほうは真ん中の帯を読み、ときどき画面全体も読む。
+   */
   function startBarcodeLoop(video) {
     const detector = Scan.barcodeDetector();
-    if (!detector) return;
-
     let busy = false;
+    let round = 0;
     scanTimer = setInterval(async () => {
       if (busy || video.readyState < 2) return;
       busy = true;
-      const jan = await Scan.detectBarcode(detector, video);
+      round += 1;
+      let jan = detector ? await Scan.detectBarcode(detector, video) : null;
+      if (!jan && (!detector || round % 3 === 0)) {
+        jan = await Scan.detectBarcodeBundled(video, video.videoWidth, video.videoHeight, round % 4 !== 0);
+      }
       busy = false;
-      if (jan) finishScan({ jan });
-    }, 220);
+      if (jan && scanMode === 'barcode') finishScan({ jan });
+    }, 160);
   }
 
   async function shootScan() {
@@ -3207,7 +3320,10 @@
     if (scanMode === 'barcode') {
       const detector = Scan.barcodeDetector();
       const canvas = Scan.prepare(source, width, height, false);
-      const jan = await Scan.detectBarcode(detector, canvas);
+      /* 写真はブラウザの読み取りで読めなければ、同梱の読み取りで全体と帯の両方を試す */
+      const jan = await Scan.detectBarcode(detector, canvas)
+        || await Scan.detectBarcodeBundled(source, width, height, false)
+        || await Scan.detectBarcodeBundled(source, width, height, true);
       if (jan) {
         finishScan({ jan });
         return;

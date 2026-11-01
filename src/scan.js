@@ -185,11 +185,20 @@ const Scan = (function () {
   /* --- カメラ ------------------------------------------------------------- */
 
   async function openStream() {
-    /* 背面カメラを頼む。無い端末では既定のカメラにそのまま落ちる */
-    return navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
+    /**
+     * 背面カメラを頼む。無い端末では既定のカメラにそのまま落ちる。
+     * バーコードの細い線を拾えるよう、解像度は高めを頼む（出せない端末では出せる分になる）。
+     */
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
+    /* ピントを合わせ続けてもらう。近づけたときにぼけたままだと読めない。できない端末では何もしない */
+    const [track] = stream.getVideoTracks();
+    if (track && track.applyConstraints) {
+      track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+    }
+    return stream;
   }
 
   function stopStream(stream) {
@@ -275,6 +284,60 @@ const Scan = (function () {
     }
   }
 
+  /**
+   * ブラウザに読み取りの仕組みが無いとき（Android のアプリの中など）に使う、同梱の読み取り。
+   * ZXing を端末の中のファイルから読み込む。外からは何も落とさない。
+   */
+  const ZXING_URL = 'src/vendor/zxing-0.21.3.min.js';
+  let zxingReader = null;
+
+  async function ensureZxing() {
+    if (!window.ZXing) await loadScript(ZXING_URL);
+    if (!zxingReader) {
+      const ZX = window.ZXing;
+      const hints = new Map();
+      hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [
+        ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8, ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E,
+      ]);
+      hints.set(ZX.DecodeHintType.TRY_HARDER, true);
+      zxingReader = new ZX.MultiFormatReader();
+      zxingReader.setHints(hints);
+    }
+    return zxingReader;
+  }
+
+  /**
+   * 映像の一部を切り出して読む。バーコードは横長なので、真ん中の帯を大きめに取る。
+   * 画面いっぱいを毎回読むより速く、手前の文字や模様に気を取られにくい。
+   * band が false のときは全体を読む（斜めや端に写ったとき用に、ときどき混ぜる）。
+   */
+  function grab(source, width, height, band) {
+    const sx = band ? width * 0.05 : 0;
+    const sw = band ? width * 0.9 : width;
+    const sy = band ? height * 0.25 : 0;
+    const sh = band ? height * 0.5 : height;
+    const scale = Math.min(1, 1280 / sw);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    canvas.getContext('2d', { willReadFrequently: true }).drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  /** 同梱の読み取りで JAN を探す。読めなければ null */
+  async function detectBarcodeBundled(source, width, height, band) {
+    try {
+      const reader = await ensureZxing();
+      const ZX = window.ZXing;
+      const canvas = grab(source, width, height, band);
+      const bitmap = new ZX.BinaryBitmap(new ZX.HybridBinarizer(new ZX.HTMLCanvasElementLuminanceSource(canvas)));
+      const result = reader.decodeWithState(bitmap);
+      return normalizeJan(result.getText());
+    } catch (error) {
+      return null;
+    }
+  }
+
   /* --- 文字の検出 ---------------------------------------------------------- */
 
   let ocrWorker = null;
@@ -339,6 +402,7 @@ const Scan = (function () {
     prepare,
     barcodeDetector,
     detectBarcode,
+    detectBarcodeBundled,
     readText,
     BARCODE_FORMATS,
   };
