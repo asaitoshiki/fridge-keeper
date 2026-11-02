@@ -370,7 +370,7 @@
   /**
    * この冷蔵庫で、その食材のいちばんの段（placeFor）。食品ごとのおすすめがあるときだけ。
    * better は、いまの段から移す意味があるか。目安が延びるとき、
-   * または目安が同じでも、おすすめの種類の場所へ移すとき（じゃがいもを冷蔵から常温へ、など味のため）。
+   * または目安が同じでも、野菜・果物をおすすめの種類の場所へ移すとき（じゃがいもを冷蔵から常温へ、など味のため）。
    */
   function bestPlaceFor(item) {
     const preferred = bestStorageFor(item);
@@ -382,8 +382,12 @@
     if (!kind) return { target, kind: targetKind, better: true };
     const here = daysIn(item, item.compartmentId);
     const there = daysIn(item, target);
+    /**
+     * 目安が同じでもおすすめの場所へ移すのは、冷やすと味が落ちる野菜・果物（じゃがいも・さつまいもなど）だけ。
+     * 飲み物や調味料は冷やしておくのが普通なので、冷蔵庫から出すようには言わない。
+     */
     const better = (there !== null && here !== null && there > here)
-      || (there === here && targetKind === preferred && kind !== preferred);
+      || (there === here && targetKind === preferred && kind !== preferred && isProduce(item));
     return { target, kind: targetKind, better };
   }
 
