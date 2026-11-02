@@ -359,63 +359,86 @@
    * いまの季節と地域で、置き場所を変えたほうがいい食材。
    * 夏になればたまねぎは常温より野菜室、のように、季節が変わると提案も変わる。
    */
+  /** その食材をその段に置いたときの残り日数。切った・開けたなどの状態や、段の温度も含めて見る */
+  function daysIn(item, compartmentId) {
+    const compartment = findCompartment(state.layout, compartmentId);
+    if (!compartment) return null;
+    const { date } = effectiveExpiry({ ...item, compartmentId }, compartment.kind);
+    return date ? diffDays(todayIso(), date) : null;
+  }
+
   /**
-   * この冷蔵庫で、その食材のおすすめに当たる段。
-   * おすすめの種類の場所が無ければ近い場所（野菜室が無ければ冷蔵室）、肉や魚はチルド室を選ぶ。
-   * 戻り値の better は、いまの段から移す意味があるか（種類が変わる、または肉や魚をチルドへ）。
+   * この冷蔵庫で、その食材のいちばんの段（placeFor）。食品ごとのおすすめがあるときだけ。
+   * better は、いまの段から移す意味があるか。目安が延びるとき、
+   * または目安が同じでも、おすすめの種類の場所へ移すとき（じゃがいもを冷蔵から常温へ、など味のため）。
    */
   function bestPlaceFor(item) {
-    const kind = kindFor(item);
-    const best = bestStorageFor(item);
-    if (!best) return null;
-    const target = placeFor(state.layout, best, item);
+    const preferred = bestStorageFor(item);
+    if (!preferred) return null;
+    const target = placeFor(state.layout, preferred, item);
     if (!target || target === item.compartmentId) return null;
     const targetKind = findCompartment(state.layout, target).kind;
-    const better = kind !== targetKind || item.category === 'MEAT_FISH';
+    const kind = kindFor(item);
+    if (!kind) return { target, kind: targetKind, better: true };
+    const here = daysIn(item, item.compartmentId);
+    const there = daysIn(item, target);
+    const better = (there !== null && here !== null && there > here)
+      || (there === here && targetKind === preferred && kind !== preferred);
     return { target, kind: targetKind, better };
   }
 
+  /**
+   * 保存のコツの文を、この冷蔵庫に合わせる。
+   * 野菜室の無い冷蔵庫で「野菜室へ」と言っても仕方がないので、実際に勧める段の名前に置き換える。
+   */
+  function localTip(text, item) {
+    if (!text) return text;
+    if (allCompartments(state.layout).some((c) => c.kind === 'VEGETABLE_DRAWER')) return text;
+    const target = placeFor(state.layout, 'VEGETABLE_DRAWER', item);
+    const name = target ? findCompartment(state.layout, target).name : '冷蔵室';
+    return text.replace(/野菜室/g, name);
+  }
+
   function placementSuggestions() {
-    const today = todayIso();
-    /* その場所に置いたときの残り日数。切った・開けたなどの状態も含めて比べる */
-    const daysAt = (item, kind) => {
-      const { date } = effectiveExpiry(item, kind);
-      return date ? diffDays(today, date) : null;
-    };
     return state.items
       .map((item) => {
         const kind = kindFor(item);
         if (!kind) return null;
-        const here = daysAt(item, kind);
-        const bestPlace = bestPlaceFor(item);
-        let best = bestPlace && bestPlace.better ? bestPlace.kind : null;
-        let target = bestPlace && bestPlace.better ? bestPlace.target : null;
+        const here = daysIn(item, item.compartmentId);
         const condition = conditionOf(item);
-        let reason = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
-        /**
-         * 食品ごとのおすすめが無くても、いまの場所ではすぐ傷んでしまうもの
-         * （肉を常温に置いた、暑い時期に卵を常温に置いたなど）は、いつもの置き場所を勧める。
-         */
-        if (!best) {
-          const usual = CATEGORY_STORAGE[item.category];
-          const usualDays = usual ? daysAt(item, usual) : null;
-          const poor = here !== null && usualDays > 0 && (here === 0 || (here <= 2 && usualDays >= here * 3));
-          if (!usual || usual === kind || !poor) return null;
-          best = usual;
-          target = placeFor(state.layout, usual, item);
-          reason = here === 0
-            ? `${STORAGE_LABELS[kind]}には向きません。`
-            : `${STORAGE_LABELS[kind]}だと目安が${here}日と短くなります。`;
+        const tip = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
+        let target = null;
+        let reason = localTip(tip, item);
+
+        const bestPlace = bestPlaceFor(item);
+        if (bestPlace && bestPlace.better) {
+          target = bestPlace.target;
+        } else if (!bestStorageFor(item)) {
+          /**
+           * 食品ごとのおすすめが無くても、いまの場所ではすぐ傷んでしまうもの
+           * （肉を常温に置いた、暑い時期に卵を常温に置いたなど）は、この冷蔵庫のいちばんの場所を勧める。
+           */
+          const usual = placementFor(item);
+          const candidate = usual ? placeFor(state.layout, usual, item) : null;
+          const there = candidate ? daysIn(item, candidate) : null;
+          const poor = here !== null && there > 0 && (here <= 0 || (here <= 2 && there >= here * 3));
+          if (!candidate || candidate === item.compartmentId || !poor) return null;
+          target = candidate;
+          reason = here <= 0
+            ? `${findCompartment(state.layout, item.compartmentId).name}には向きません。`
+            : `${findCompartment(state.layout, item.compartmentId).name}だと目安が${here}日と短くなります。`;
         }
         if (!target || target === item.compartmentId) return null;
-        /* 同じ冷蔵の中でチルド室へ移すときは、温度が低いことを理由に言う */
-        if (findCompartment(state.layout, target).kind === kind) {
-          reason = `${findCompartment(state.layout, target).name}は温度が低いので、肉や魚が長持ちしやすいです。`;
-        }
+
+        const there = daysIn(item, target);
         /* 移すと目安が短くなる提案はしない。長持ちさせるための提案なので */
-        const there = daysAt({ ...item, compartmentId: target }, best);
         if (here !== null && there !== null && there < here) return null;
-        return { item, kind, best, target, reason, here };
+        const targetCompartment = findCompartment(state.layout, target);
+        /* 同じ種類の中で移すとき（冷蔵室からチルド室など）は、温度が低いことを理由に言う */
+        if (targetCompartment.kind === kind) {
+          reason = `${targetCompartment.name}のほうが温度が低いので、長持ちしやすいです。`;
+        }
+        return { item, kind, best: targetCompartment.kind, target, reason, here };
       })
       .filter(Boolean)
       /* いまの場所ですぐ傷むものから先に見せる */
@@ -2253,7 +2276,7 @@
     const kind = kindFor(item);
     const best = bestStorageFor(item);
     /* 手を加えたあとは、丸ごとのときのコツより状態ごとのコツを出す */
-    const tip = condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item);
+    const tip = localTip(condition !== 'NONE' && CONDITION_TIPS[condition] ? CONDITION_TIPS[condition] : storageTipFor(item), item);
     const lines = [];
     const bestPlace = bestPlaceFor(item);
     if (kind && bestPlace && bestPlace.better) lines.push(`<b>${compartmentPath(state.layout, bestPlace.target)}がおすすめです。</b>`);
@@ -2578,9 +2601,11 @@
     /* 包み方は、野菜・果物と料理のときだけ聞く */
     dialog.querySelector('#f-wrap-field').hidden = !wrapMatters(probe);
 
+    /* おすすめは、この冷蔵庫にある場所の中から選ぶ（野菜室が無ければ野菜室とは言わない） */
     const best = bestStorageFor(probe);
-    const advice = best && kind !== best
-      ? `<br>${esc(probe.name)}は<b>${STORAGE_LABELS[best]}</b>がおすすめです。`
+    const bestTarget = best && probe.name ? placeFor(state.layout, best, probe) : null;
+    const advice = bestTarget && bestTarget !== probe.compartmentId
+      ? `<br>${esc(probe.name)}は<b>${esc(compartmentPath(state.layout, bestTarget))}</b>がおすすめです。`
       : '';
 
     if (!compartment) {

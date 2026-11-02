@@ -155,23 +155,56 @@ function firstCompartmentOfKind(layout, kind) {
   return main ? main.id : null;
 }
 
-/* その種類の場所が無いときに、代わりに入れる種類。野菜室の無い冷蔵庫では野菜は冷蔵室へ */
+/* チルド室（2℃未満の冷蔵の段）に入れる種類。冷凍食品は解凍したものを入れることがあるので含める */
+const CHILL_CATEGORIES = ['MEAT_FISH', 'DAIRY', 'PROCESSED', 'FROZEN'];
+
+/* 食材を渡さずに入れ先だけ決めるときの、代わりの種類。野菜室の無い冷蔵庫では野菜は冷蔵室へ */
 const KIND_FALLBACK = { VEGETABLE_DRAWER: 'FRIDGE', FRIDGE: 'VEGETABLE_DRAWER' };
 
 /**
- * 食材を入れる段。その種類の場所が無ければ近い種類の場所にする。無ければ null（買ってきたもの）。
- * 肉と魚は、冷蔵の中に2℃以下の場所（チルド室など）があればそちらを選ぶ。
+ * この冷蔵庫で、その食材をいちばん長く持たせられる段。
+ * kind はその食材のおすすめの種類（食品ごとの値か、カテゴリのいつもの場所）。
+ *
+ * 1. その種類の段があれば、その中から目安がいちばん長くなる段を選ぶ（肉ならチルド室、など温度で決まる）。
+ * 2. 無ければ、冷凍庫以外のある場所の中から、目安がいちばん長くなる段を選ぶ。
+ *    野菜室の無い冷蔵庫でも、ある場所の中でいちばんの所を勧めるため。
+ *    冷凍がおすすめのもの（アイスなど）は、冷凍庫が無ければどこにも入れない。
+ * 2℃未満の段（チルド室など）は、肉・魚・乳製品・加工食品（ハム・納豆など）と解凍したものに使う。
+ * 野菜や果物は冷えすぎで傷むものがあり、卵や飲み物はチルド室に入れるものではないので、ほかに無いときだけ。
+ * 目安が同じなら、おすすめの種類、ドアポケットより棚や引き出し、大きい段の順にする。
+ * 食材を渡さないときは、その種類の大きい段（無ければ代わりの種類）にする。
  */
 function placeFor(layout, kind, item) {
   if (!kind) return null;
-  if (kind === 'FRIDGE' && item && item.category === 'MEAT_FISH') {
-    const chilled = allCompartments(layout)
-      .filter((c) => c.kind === 'FRIDGE' && Number.isFinite(c.temp) && c.temp <= 2)
-      .sort((a, b) => a.temp - b.temp)[0];
-    if (chilled) return chilled.id;
+  if (!item) {
+    return firstCompartmentOfKind(layout, kind)
+      || (KIND_FALLBACK[kind] ? firstCompartmentOfKind(layout, KIND_FALLBACK[kind]) : null);
   }
-  return firstCompartmentOfKind(layout, kind)
-    || (KIND_FALLBACK[kind] ? firstCompartmentOfKind(layout, KIND_FALLBACK[kind]) : null);
+  const all = allCompartments(layout);
+  let pool = all.filter((c) => c.kind === kind);
+  if (pool.length === 0) {
+    if (kind === 'FREEZER') return null;
+    pool = all.filter((c) => c.kind !== 'FREEZER');
+  }
+  if (!CHILL_CATEGORIES.includes(item.category)) {
+    const notTooCold = pool.filter((c) => !(Number.isFinite(c.temp) && c.temp < 2));
+    if (notTooCold.length > 0) pool = notTooCold;
+  }
+  if (pool.length === 0) return null;
+
+  /* 段ごとの温度で目安を比べるので、この冷蔵庫の温度を計算に渡しておく */
+  setCompartmentTemps(layout);
+  const today = todayIso();
+  const daysIn = (c) => {
+    const { date } = effectiveExpiry({ ...item, compartmentId: c.id }, c.kind);
+    return date ? diffDays(today, date) : -999;
+  };
+  return pool
+    .map((c) => ({ c, days: daysIn(c) }))
+    .sort((a, b) => (b.days - a.days)
+      || ((b.c.kind === kind) - (a.c.kind === kind))
+      || ((a.c.form === 'POCKET') - (b.c.form === 'POCKET'))
+      || (b.c.width * b.c.height - a.c.width * a.c.height))[0].c.id;
 }
 
 /**
