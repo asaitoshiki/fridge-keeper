@@ -2626,3 +2626,253 @@ body.is-dragging .chip:not(.chip-ghost) { cursor: grabbing; }
 
 /* 提案を「このままにする」×。移すの横に小さく置く */
 .advice-skip { flex: 0 0 auto; color: var(--ink-3); }
+
+/* 期限を手早く入れる部品 */
+.expiry-helper { display: flex; flex-direction: column; gap: 8px; }
+.ex-quick { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.ex-quick::-webkit-scrollbar { display: none; }
+.ex-chip {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ex-chip:active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.ex-typed { display: flex; align-items: center; gap: 8px; }
+.ex-typed span { flex: 0 0 auto; font-size: 12px; color: var(--ink-3); font-weight: 700; }
+.ex-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  background: var(--ground);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.ex-preview { margin: 0; min-height: 1em; font-size: 12.5px; color: var(--accent); font-weight: 700; }
+.ex-preview:empty { display: none; }
+
+/* ===========================================================================
+   ポップな見た目
+   丸い文字、太めの縁、押せるものには下に厚みの影。冷たい金属の感じをやめ、明るい青紫を主役にする。
+   赤・橙・黄は期限の緊急度だけの色なので、ここでは使わない。「安全」と読める緑も使わない。
+   =========================================================================== */
+
+:root {
+  --ground: #f4f3ff;
+  --surface: #ffffff;
+  --surface-2: #ecebff;
+  --line: #dedcf7;
+  --line-strong: #c4c1ee;
+  --ink: #1f1a3d;
+  --ink-2: #4d4875;
+  --ink-3: #847fae;
+
+  --accent: #4b5cf0;
+  --accent-soft: #e5e8ff;
+  --accent-deep: #3243c9;
+  --on-accent: #ffffff;
+  --calm-bar: #c4c1ee;
+
+  --metal-1: #ffffff;
+  --metal-2: #f6f5ff;
+  --metal-3: #dcd9fb;
+  --panel-1: #ffffff;
+  --panel-2: #f3f2ff;
+  --cavity-1: #e4e2fb;
+  --cavity-2: #f6f5ff;
+  --chrome-hi: #ffffff;
+  --chrome-mid: #c9c5f0;
+  --chrome-lo: #8d87c6;
+  --ao: rgba(60, 50, 150, .22);
+  --ao-soft: rgba(60, 50, 150, .12);
+  --sheen: rgba(255, 255, 255, .5);
+  --stage-bg: #e2e0ff;
+  --bezel: #1f1a3d;
+  --frost: rgba(120, 130, 240, .10);
+
+  --radius: 20px;
+  --radius-sm: 12px;
+  --pop: 0 4px 0 var(--line);
+  --shadow: 0 4px 0 #dedcf7, 0 12px 24px -16px rgba(60, 50, 150, .35);
+
+  --sans: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", system-ui, -apple-system, sans-serif;
+  --mono: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #14122a;
+    --surface: #1f1c3b;
+    --surface-2: #2a2650;
+    --line: #34305e;
+    --line-strong: #4a4580;
+    --ink: #f3f1ff;
+    --ink-2: #c4c0ea;
+    --ink-3: #8f8ab9;
+    --accent: #8f9bff;
+    --accent-soft: #2b2e66;
+    --accent-deep: #5a66d6;
+    --on-accent: #14122a;
+    --calm-bar: #4a4580;
+    --metal-1: #3a3566;
+    --metal-2: #26224a;
+    --metal-3: #17142f;
+    --panel-1: #2d2955;
+    --panel-2: #221e44;
+    --cavity-1: #120f27;
+    --cavity-2: #221e44;
+    --chrome-hi: #d9d6ff;
+    --chrome-mid: #6e68a6;
+    --chrome-lo: #6e68a6;
+    --ao: rgba(0, 0, 0, .5);
+    --ao-soft: rgba(0, 0, 0, .28);
+    --sheen: rgba(200, 200, 255, .10);
+    --stage-bg: #0b0a18;
+    --bezel: #000000;
+    --pop: 0 4px 0 #0d0b1f;
+    --shadow: 0 4px 0 #0d0b1f, 0 12px 24px -16px rgba(0, 0, 0, .7);
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #14122a;
+  --surface: #1f1c3b;
+  --surface-2: #2a2650;
+  --line: #34305e;
+  --line-strong: #4a4580;
+  --ink: #f3f1ff;
+  --ink-2: #c4c0ea;
+  --ink-3: #8f8ab9;
+  --accent: #8f9bff;
+  --accent-soft: #2b2e66;
+  --accent-deep: #5a66d6;
+  --on-accent: #14122a;
+  --calm-bar: #4a4580;
+  --metal-1: #3a3566;
+  --metal-2: #26224a;
+  --metal-3: #17142f;
+  --panel-1: #2d2955;
+  --panel-2: #221e44;
+  --cavity-1: #120f27;
+  --cavity-2: #221e44;
+  --chrome-hi: #d9d6ff;
+  --chrome-mid: #6e68a6;
+  --chrome-lo: #6e68a6;
+  --ao: rgba(0, 0, 0, .5);
+  --ao-soft: rgba(0, 0, 0, .28);
+  --sheen: rgba(200, 200, 255, .10);
+  --stage-bg: #0b0a18;
+  --bezel: #000000;
+  --pop: 0 4px 0 #0d0b1f;
+  --shadow: 0 4px 0 #0d0b1f, 0 12px 24px -16px rgba(0, 0, 0, .7);
+}
+
+body { font-weight: 500; }
+
+/* 見出しは太く丸く */
+.wordmark { font-weight: 900; font-size: 21px; letter-spacing: .01em; }
+.pane-head h2, .settings-block h3, .report-head, .advice-head, .summary-head { font-weight: 900; }
+
+/* 押せるもの: 太めの縁と、下に厚み。押すと沈む */
+.btn, .mini, .tab-action, .quick-go, .quick-more, .quick-scan, .action-btn, .state-chip, .ex-chip, .step-btn {
+  transition: transform .06s ease, box-shadow .06s ease;
+}
+.btn { border-width: 2px; border-radius: 16px; font-weight: 800; }
+.btn-primary { box-shadow: 0 4px 0 var(--accent-deep); }
+.btn-ghost { background: var(--surface); border-color: var(--line-strong); color: var(--ink-2); font-weight: 700; box-shadow: 0 3px 0 var(--line-strong); }
+.mini, .tab-action { border-width: 2px; border-radius: 999px; font-weight: 700; box-shadow: 0 3px 0 var(--line-strong); background: var(--surface); }
+.quick-go { box-shadow: 0 4px 0 var(--accent-deep); font-weight: 900; }
+.quick-more, .quick-scan { border: 2px solid var(--line-strong); background: var(--surface); box-shadow: 0 3px 0 var(--line-strong); }
+.action-btn { border-width: 2px; border-radius: 18px; box-shadow: 0 3px 0 var(--line); }
+.btn:active, .mini:active, .tab-action:active, .quick-go:active, .quick-more:active, .quick-scan:active,
+.action-btn:active, .state-chip:active, .ex-chip:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--line-strong);
+}
+.btn-primary:active, .quick-go:active { box-shadow: 0 1px 0 var(--accent-deep); }
+.state-chip, .ex-chip { border-width: 2px; box-shadow: 0 3px 0 var(--line); }
+.state-chip[aria-pressed="true"] { box-shadow: 0 3px 0 var(--accent-deep); }
+
+/* 選ぶもの: 押されている方を主役の色で塗る */
+.segmented, .seg { background: var(--surface-2); border: 2px solid var(--line); }
+.seg[aria-pressed="true"], .seg-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 0 var(--accent-deep);
+}
+
+/* カード: 角を大きく丸め、縁と下の厚みで浮かせる */
+.summary, .streak, .advice, .notice-group, .settings-pane .settings-block, .hero, .stats .stat {
+  border-width: 2px;
+  border-radius: var(--radius);
+}
+.summary, .advice, .notice-group { border-left-width: 7px; }
+.streak-days b, .hero-number { color: var(--accent); }
+
+/* 食材のチップ: 丸く、厚みを付けて、つまめそうに */
+.chip {
+  border-width: 2px;
+  border-left-width: 6px;
+  border-radius: 14px;
+  font-weight: 700;
+  box-shadow: 0 3px 0 var(--line-strong);
+}
+
+/* 買ってきたもの: 主役の色の点線で囲む */
+.tray { border: 2.5px dashed var(--accent); border-radius: var(--radius); background: var(--surface); }
+.tray-place { border-width: 2px; border-radius: 16px; box-shadow: 0 3px 0 var(--accent-deep); background: var(--accent); color: var(--on-accent); }
+
+/* 冷蔵庫の図: 金属の光沢をやめ、白い本体に太い輪郭 */
+.unit[data-type="FRIDGE"] .case {
+  background: linear-gradient(180deg, var(--metal-1) 0%, var(--metal-2) 100%);
+  border: 3px solid var(--chrome-lo);
+  border-radius: 24px 24px 18px 18px;
+  box-shadow: 0 6px 0 var(--metal-3);
+  padding: 10px 10px 14px;
+}
+.case-top { display: none; }
+.unit[data-type="FRIDGE"] .case { margin-top: 4px; }
+.case-feet i { background: var(--chrome-lo); border-radius: 0 0 8px 8px; }
+.unit[data-type="SHELF"] .case {
+  background: var(--surface);
+  border: 3px solid var(--line-strong);
+  border-radius: 20px;
+  box-shadow: 0 5px 0 var(--line);
+}
+.comp {
+  border-radius: 14px;
+  background: var(--cavity-2);
+  box-shadow: inset 0 0 0 2px var(--cavity-1);
+}
+.comp[data-form="SHELF"]::after { background: var(--cavity-1); box-shadow: none; height: 4px; border-radius: 999px; }
+
+/* シート */
+dialog::backdrop { background: rgba(31, 26, 61, .5); }
+.sheet-form { border-width: 2px; border-radius: 26px; }
+
+/* 下のタブ: 選んでいるタブの絵を丸い札で囲む */
+.navbar { border-top: 2px solid var(--line); }
+.nav-item svg { box-sizing: content-box; padding: 4px 14px; border-radius: 999px; }
+.nav-item[aria-pressed="true"] svg { background: var(--accent-soft); stroke-width: 2.3; }
+.nav-item { font-weight: 700; }
+
+/* 入力欄も丸く、少し太い縁に */
+.quick-add input, .field input, .field select, .field textarea, .ex-text,
+.expiry-inputs select, .expiry-inputs input, .temp-input input, .timing-row select, .timing-row input {
+  border-width: 2px;
+  border-radius: 14px;
+}
+.quick-add input { border-radius: 999px; }
+
+/* 取り消しの帯 */
+.undo-bar { border-radius: 16px; }
+/* 図・期限順の切り替えは、外枠だけに縁を付ける（中のボタンには付けない） */
+.segmented > .seg { border: 0; padding: 7px 18px; }

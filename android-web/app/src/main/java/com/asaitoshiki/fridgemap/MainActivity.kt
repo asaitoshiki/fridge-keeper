@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
 
     /** 端の帯の地の色と文字の色を、ウェブ版の明るい・暗い配色に合わせる */
     private fun applyBars(dark: Boolean) {
-        container.setBackgroundColor(if (dark) Color.parseColor("#0C1418") else Color.parseColor("#EEF3F6"))
+        container.setBackgroundColor(if (dark) Color.parseColor("#14122A") else Color.parseColor("#F4F3FF"))
         WindowInsetsControllerCompat(window, container).apply {
             isAppearanceLightStatusBars = !dark
             isAppearanceLightNavigationBars = !dark

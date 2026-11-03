@@ -1382,7 +1382,13 @@
     }
 
     const openFull = root.querySelector('#open-full');
-    if (openFull) openFull.addEventListener('click', () => openEditor(null));
+    if (openFull) {
+      /* 入力欄に打った名前は、そのまま詳しい入力へ持っていく。打ち直さずに済むように */
+      openFull.addEventListener('click', () => {
+        const typed = root.querySelector('#quick-input');
+        openEditor(null, { name: typed ? typed.value.trim() : '' });
+      });
+    }
 
     const quickFoods = root.querySelector('#quick-foods');
     if (quickFoods) quickFoods.addEventListener('click', openFoods);
@@ -2136,6 +2142,7 @@
             <input type="date" id="act-date" aria-label="期限日">
             <button class="mini" type="button" id="act-scan">読む</button>
           </div>
+          ${expiryHelperMarkup('act')}
           <button class="link-btn" type="button" id="act-clear" hidden>期限を消して目安に戻す</button>
         </div>
         <p class="action-tip" id="action-tip" hidden></p>
@@ -2183,6 +2190,8 @@
       fillActions(item);
     };
     el.querySelector('#act-date').addEventListener('change', (event) => setExpiry(event.target.value, el.querySelector('#act-type').value));
+    bindExpiryHelper(el.querySelector('[data-expiry-helper="act"]'), el.querySelector('#act-date'),
+      (iso) => setExpiry(iso, el.querySelector('#act-type').value));
     el.querySelector('#act-type').addEventListener('change', (event) => {
       const item = findItem(el.dataset.itemId);
       if (item) setExpiry(item.expiryDate, event.target.value);
@@ -2244,6 +2253,117 @@
     return el;
   }
 
+  /* --- 期限を手早く入れる ------------------------------------------------------ */
+
+
+  /**
+   * 期限の入力を手早くする部品。日付の欄の下に、よく使う日のボタンと、印字を数字で打つ欄を足す。
+   * 日付の選択画面を開いて年月日を回すより、ボタン一つか、袋の印字をそのまま打つほうが早い。
+   */
+  function expiryHelperMarkup(key) {
+    /* よく使う期限。生ものは数日、パンや豆腐は1週間前後、乾物や調味料は月単位が多い。
+       シートは起動してすぐ組み立てるので、外の定数ではなくここに持つ */
+    const EXPIRY_QUICK = [['今日', '0'], ['明日', '1'], ['3日後', '3'], ['1週間', '7'], ['2週間', '14'], ['1か月', '1m'], ['3か月', '3m']];
+    return `
+      <div class="expiry-helper" data-expiry-helper="${key}">
+        <div class="ex-quick">
+          ${EXPIRY_QUICK.map(([label, value]) => `<button class="ex-chip" type="button" data-ex-quick="${value}">${label}</button>`).join('')}
+        </div>
+        <label class="ex-typed">
+          <span>印字を数字で</span>
+          <input type="text" inputmode="numeric" class="ex-text" placeholder="例 1105・26.11.5" autocomplete="off" enterkeyhint="done">
+        </label>
+        <p class="ex-preview" aria-live="polite"></p>
+      </div>`;
+  }
+
+  /** 今日から n 日後、または n か月後（'1m'）。月末を越えるときはその月の末日にする */
+  function quickExpiry(value) {
+    const today = todayIso();
+    if (!String(value).endsWith('m')) return addDays(today, Number(value));
+    const [y, m, d] = today.split('-').map(Number);
+    const months = Number(String(value).slice(0, -1));
+    const last = new Date(y, m - 1 + months + 1, 0).getDate();
+    return toIso(new Date(y, m - 1 + months, Math.min(d, last)));
+  }
+
+  /**
+   * 打った数字を日付にする。月日だけ（1105、11/5）なら今日から見て次に来るその日。
+   * 年付き（261105、20261105、26.11.05、2026年11月5日）もそのまま読む。読めなければ null。
+   */
+  function parseTypedExpiry(raw) {
+    const text = String(raw || '')
+      .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+      .trim();
+    if (!text) return null;
+    const today = todayIso();
+    const make = (year, month, day) => {
+      const date = new Date(year, month - 1, day);
+      if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+      return toIso(date);
+    };
+    const monthDay = (month, day) => {
+      const year = Number(today.slice(0, 4));
+      const thisYear = make(year, month, day);
+      if (!thisYear) return null;
+      /* 1週間より前の日なら来年のこととして読む（12月に「0105」と打ったら翌年の1月5日） */
+      return thisYear < addDays(today, -7) ? make(year + 1, month, day) : thisYear;
+    };
+    if (/^\d+$/.test(text)) {
+      if (text.length === 4) return monthDay(Number(text.slice(0, 2)), Number(text.slice(2)));
+      if (text.length === 6) return make(2000 + Number(text.slice(0, 2)), Number(text.slice(2, 4)), Number(text.slice(4)));
+      if (text.length === 8) return make(Number(text.slice(0, 4)), Number(text.slice(4, 6)), Number(text.slice(6)));
+      return null;
+    }
+    const md = text.match(/^(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})\s*日?$/);
+    if (md) return monthDay(Number(md[1]), Number(md[2]));
+    const found = Scan.parseExpiry(text, today);
+    return found ? found.date : null;
+  }
+
+  /**
+   * 部品をつなぐ。日付が決まったら日付の欄に入れて onSet を呼ぶ。
+   * 数字の欄は、打ち終わって日付として読めた時点で入れる。読めないときは下に理由を出す。
+   */
+  function bindExpiryHelper(helper, dateInput, onSet) {
+    if (!helper) return;
+    const preview = helper.querySelector('.ex-preview');
+    const text = helper.querySelector('.ex-text');
+    const apply = (iso) => {
+      dateInput.value = iso;
+      const left = diffDays(todayIso(), iso);
+      preview.textContent = `→ ${formatDate(iso)}（${remainingLabel(left)}）にしました`;
+      onSet(iso);
+    };
+    helper.querySelectorAll('[data-ex-quick]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        text.value = '';
+        apply(quickExpiry(chip.dataset.exQuick));
+      });
+    });
+    text.addEventListener('input', () => {
+      const iso = parseTypedExpiry(text.value);
+      if (iso) {
+        apply(iso);
+        return;
+      }
+      preview.textContent = text.value.trim() ? '月日の4桁（1105）か、年月日（26.11.5）で打ってください' : '';
+    });
+    text.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        text.blur();
+      }
+    });
+  }
+
+  /** 開くたびに、前の食材の打ちかけを消しておく */
+  function resetExpiryHelper(helper) {
+    if (!helper) return;
+    helper.querySelector('.ex-text').value = '';
+    helper.querySelector('.ex-preview').textContent = '';
+  }
+
   function setEatCount(count, quantity) {
     actionDialog.dataset.eatCount = String(count);
     actionDialog.querySelector('#eat-count').textContent = String(count);
@@ -2257,6 +2377,7 @@
     const item = findItem(id);
     if (!item) return;
     actionDialog.dataset.itemId = id;
+    resetExpiryHelper(actionDialog.querySelector('[data-expiry-helper="act"]'));
     setEatCount(1, item.quantity);
     fillActions(item);
     actionDialog.dataset.openedAt = String(Date.now());
@@ -2438,6 +2559,7 @@
             </div>
           </div>
         </div>
+        ${expiryHelperMarkup('editor')}
 
         <p class="scan-result" id="editor-note" hidden></p>
         <div class="hint" id="f-hint"></div>
@@ -2483,6 +2605,11 @@
     ['f-category', 'f-place', 'f-date', 'f-condition', 'f-wrap'].forEach((id) => {
       el.querySelector(`#${id}`).addEventListener('change', updateHint);
     });
+    bindExpiryHelper(el.querySelector('[data-expiry-helper="editor"]'), el.querySelector('#f-date'), () => {
+      /* 期限を入れたのに種別が「書いていない」のままだと、期限が効かない。賞味期限にしておく */
+      if (el.querySelector('#f-type').value === 'UNKNOWN') el.querySelector('#f-type').value = 'BEST_BEFORE';
+      updateHint();
+    });
     /* カテゴリで選べる状態が変わる（野菜なら丸ごと・切った、牛乳なら開けた） */
     el.querySelector('#f-category').addEventListener('change', () => fillConditions(el.querySelector('#f-condition').value));
     el.querySelector('#f-notify-mode').addEventListener('change', renderEditorTimings);
@@ -2510,7 +2637,11 @@
     return `<option value="">まだ入れない（買ってきたもの）</option>${groups}`;
   }
 
-  function openEditor(id) {
+  /**
+   * 登録・編集の画面を開く。preset.name を渡すと、新しく足すときの名前として入れておく
+   * （入力欄に打ってから「詳しく」を押したとき）。カテゴリと状態も名前から推す。
+   */
+  function openEditor(id, preset) {
     editingId = id;
     const item = id ? state.items.find((i) => i.id === id) : null;
 
@@ -2534,6 +2665,15 @@
     dialog.querySelector('#f-notify-mode').value = !Array.isArray(own) ? 'default' : own.length === 0 ? 'off' : 'custom';
     renderEditorTimings();
     setEditorNote('');
+    resetExpiryHelper(dialog.querySelector('[data-expiry-helper="editor"]'));
+
+    const typedName = !item && preset && preset.name ? preset.name : '';
+    if (typedName) {
+      const known = FOOD_BY_NAME[typedName];
+      dialog.querySelector('#f-name').value = typedName;
+      dialog.querySelector('#f-category').value = known ? known.category : guessCategoryByName(typedName);
+      fillConditions(looksCut(typedName) && isProduce({ category: dialog.querySelector('#f-category').value }) ? 'CUT' : 'NONE');
+    }
 
     updateHint();
     dialog.showModal();
@@ -2613,7 +2753,9 @@
       : '';
 
     if (!compartment) {
-      hint.innerHTML = `まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。${advice}`;
+      hint.innerHTML = probe.expiryDate
+        ? `入力された期限日 <b>${formatDate(probe.expiryDate)}</b>（${remainingLabel(diffDays(todayIso(), probe.expiryDate))}）を使います。${advice}`
+        : `まだどこにも入れていないため <b>期限なし</b> として扱います。冷蔵庫に入れると目安が付きます。${advice}`;
       return;
     }
 
