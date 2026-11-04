@@ -454,11 +454,35 @@ const FridgeView = (function () {
           <span class="comp-kind">${STORAGE_LABELS[compartment.kind]}</span>
           ${items.length > 0 ? `<span class="comp-count">${items.length}</span>` : ''}
         </header>
-        ${opts.editing
-          ? ''
-          : `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>`}
+        ${opts.editing ? '' : `<div class="comp-items">${compItemsMarkup(items, compartment, state, opts)}</div>`}
         ${selected ? gripMarkup(compartment) : ''}
       </section>`;
+  }
+
+  /* これより長く持つものは「長持ちするもの」にまとめる。2週間より先は急がないので。調味料や缶詰は何百日も持つので、並べると生ものが埋もれる */
+  const LONG_DAYS = 14;
+  /* 広げている段。画面を描き直しても閉じないよう、開いている間だけ覚えておく（保存はしない） */
+  const expandedLong = new Set();
+
+  /**
+   * 段の中の食材。期限の近い順に並べ、長持ちするものが2つ以上あれば一つのボタンにまとめる。
+   * 押すと広げ、もう一度押すと閉じる。早く使うべきものが、いつも先頭に見えるようにする。
+   */
+  function compItemsMarkup(items, compartment, state, opts) {
+    const graded = items
+      .map((item) => ({ item, u: urgencyOf(item, opts.kindFor(item), opts.today) }))
+      .sort((a, b) => (a.u.days === null ? 99999 : a.u.days) - (b.u.days === null ? 99999 : b.u.days));
+    const far = graded.filter((x) => x.u.days !== null && x.u.days > LONG_DAYS);
+    if (far.length < 2) return graded.map((x) => chip(x.item, state, opts)).join('');
+
+    const near = graded.filter((x) => !far.includes(x));
+    const open = expandedLong.has(compartment.id);
+    return `
+      ${near.map((x) => chip(x.item, state, opts)).join('')}
+      <button class="chip-group" type="button" data-long-toggle="${compartment.id}" aria-expanded="${open}">
+        ${open ? '長持ちするものを閉じる' : `長持ちするもの <b>${far.length}</b>件`}
+      </button>
+      ${open ? `<div class="chip-long">${far.map((x) => chip(x.item, state, opts)).join('')}</div>` : ''}`;
   }
 
   /**
@@ -1058,6 +1082,14 @@ const FridgeView = (function () {
     layoutSwings(root);
     if (opts.editing) return bindEditor(root, state, opts);
     root.querySelectorAll('.chip[data-item]').forEach((chipEl) => attachDrag(chipEl, opts));
+    root.querySelectorAll('[data-long-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const id = button.dataset.longToggle;
+        if (expandedLong.has(id)) expandedLong.delete(id);
+        else expandedLong.add(id);
+        opts.onRedraw();
+      });
+    });
     const placeAll = root.querySelector('[data-place-all]');
     if (placeAll && opts.onPlaceAll) placeAll.addEventListener('click', () => opts.onPlaceAll());
   }
