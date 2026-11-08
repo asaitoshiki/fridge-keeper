@@ -2896,3 +2896,25 @@ dialog::backdrop { background: rgba(31, 26, 61, .5); }
 .chip-group[aria-expanded="true"] { border-style: solid; background: var(--surface); }
 .chip-long { display: flex; flex-wrap: wrap; gap: inherit; width: 100%; padding-top: 2px; }
 .chip-long .chip { font-size: 12px; min-height: 32px; padding-top: 4px; padding-bottom: 4px; opacity: .92; }
+
+/* 調味料を出す／隠すボタン。図の上に控えめに置く */
+.seasoning-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  margin: 4px 0 10px;
+  padding: 0 14px;
+  border: 2px dashed var(--line-strong);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.seasoning-toggle b { color: var(--accent); }
+.seasoning-toggle span { margin-left: auto; color: var(--accent); }
+.seasoning-toggle[aria-pressed="true"] { justify-content: center; }

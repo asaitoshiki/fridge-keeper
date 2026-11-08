@@ -143,3 +143,8 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 
 Android のアプリでは `FridgeAndroid.scanBarcode()` で Google のコードスキャナーを使い、結果は `window.fridgeBarcodeResult(値, 状態)` で返る。
 ブラウザでは BarcodeDetector があればそれ、無ければ同梱の ZXing（`src/vendor/`）で読む。外から何も落とさない。
+
+## 冷蔵庫の図に出さないもの
+
+調味料（`SEASONING`）は何百日も持ち、並べると急ぐ生ものが埋もれるので、ふだんは図から隠す（`tuckedSeasoning()`）。図の上のボタンで出せる。
+期限が2週間以内に迫ったもの・過ぎたものは隠さない。ほかの食材でも、2週間より先まで持つものが一つの段に2つ以上あれば「長持ちするもの」にまとめる。

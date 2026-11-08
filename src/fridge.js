@@ -158,6 +158,7 @@ const FridgeView = (function () {
     return `
       ${opts.editing ? '<p class="notice">段をタップすると、下に調整が出ます。段を<b>長押し</b>すると、そのまま運んで並べ替えられます。</p>' : ''}
       ${opts.editing ? '' : trayMarkup(unplaced, state, opts)}
+      ${opts.editing ? '' : seasoningToggleMarkup(state, opts)}
       <div class="stage" data-layout="${state.layoutMode === 'ZONES' ? 'zones' : 'detailed'}"${opts.editing ? ' data-editing="true"' : ''}>
         ${stageBlocks(state, opts)}
         ${opts.editing ? '<button class="unit-add" type="button" data-add-unit>＋ 収納を追加</button>' : ''}
@@ -444,6 +445,8 @@ const FridgeView = (function () {
   function compMarkup(compartment, state, opts) {
     const items = state.items.filter((i) => i.compartmentId === compartment.id);
     const selected = opts.editing && opts.selection.type === 'comp' && opts.selection.id === compartment.id;
+    /* 隠した調味料は数えない。数と見えている食材が合わないと、どこかに抜けがあるように見える */
+    const shown = items.filter((item) => !tuckedSeasoning(item, opts)).length;
 
     return `
       <section class="comp${selected ? ' is-selected' : ''}" data-kind="${compartment.kind}"
@@ -452,7 +455,7 @@ const FridgeView = (function () {
         <header class="comp-head">
           <span class="comp-name">${esc(compartment.name)}</span>
           <span class="comp-kind">${STORAGE_LABELS[compartment.kind]}</span>
-          ${items.length > 0 ? `<span class="comp-count">${items.length}</span>` : ''}
+          ${shown > 0 ? `<span class="comp-count">${shown}</span>` : ''}
         </header>
         ${opts.editing ? '' : `<div class="comp-items">${compItemsMarkup(items, compartment, state, opts)}</div>`}
         ${selected ? gripMarkup(compartment) : ''}
@@ -464,12 +467,39 @@ const FridgeView = (function () {
   /* 広げている段。画面を描き直しても閉じないよう、開いている間だけ覚えておく（保存はしない） */
   const expandedLong = new Set();
 
+  /* 調味料を図に出しているか。ふだんは隠す。開いている間だけ覚えておく（保存はしない） */
+  let showSeasonings = false;
+
+  /**
+   * 図から隠す調味料か。何百日も持つ調味料を並べると、急ぐ生ものが埋もれるため。
+   * 期限が2週間以内に迫ったもの・過ぎたものは隠さない。アプリを開けば急ぐものは必ず見えるようにする。
+   */
+  function tuckedSeasoning(item, opts) {
+    if (showSeasonings || item.category !== 'SEASONING') return false;
+    const days = urgencyOf(item, opts.kindFor(item), opts.today).days;
+    return days === null || days > LONG_DAYS;
+  }
+
+  /** 冷蔵庫の図の上に出す、調味料を出す／隠すボタン。隠すものが無ければ出さない */
+  function seasoningToggleMarkup(state, opts) {
+    const placed = state.items.filter((i) => i.category === 'SEASONING' && findCompartment(state.layout, i.compartmentId));
+    if (showSeasonings) {
+      return placed.length > 0
+        ? '<button class="seasoning-toggle" type="button" data-seasoning-toggle aria-pressed="true">調味料を隠す</button>' : '';
+    }
+    const tucked = placed.filter((i) => tuckedSeasoning(i, opts)).length;
+    if (tucked === 0) return '';
+    return `<button class="seasoning-toggle" type="button" data-seasoning-toggle aria-pressed="false">
+        調味料 <b>${tucked}</b>件を隠しています<span>表示する</span></button>`;
+  }
+
   /**
    * 段の中の食材。期限の近い順に並べ、長持ちするものが2つ以上あれば一つのボタンにまとめる。
    * 押すと広げ、もう一度押すと閉じる。早く使うべきものが、いつも先頭に見えるようにする。
    */
   function compItemsMarkup(items, compartment, state, opts) {
     const graded = items
+      .filter((item) => !tuckedSeasoning(item, opts))
       .map((item) => ({ item, u: urgencyOf(item, opts.kindFor(item), opts.today) }))
       .sort((a, b) => (a.u.days === null ? 99999 : a.u.days) - (b.u.days === null ? 99999 : b.u.days));
     const far = graded.filter((x) => x.u.days !== null && x.u.days > LONG_DAYS);
@@ -1090,6 +1120,8 @@ const FridgeView = (function () {
         opts.onRedraw();
       });
     });
+    const seasoning = root.querySelector('[data-seasoning-toggle]');
+    if (seasoning) seasoning.addEventListener('click', () => { showSeasonings = !showSeasonings; opts.onRedraw(); });
     const placeAll = root.querySelector('[data-place-all]');
     if (placeAll && opts.onPlaceAll) placeAll.addEventListener('click', () => opts.onPlaceAll());
   }
