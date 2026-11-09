@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity() {
     private var pendingWebPermission: PermissionRequest? = null
     private var pendingSaveText: String? = null
     private var usedFallback = false
+    /* 通知の許可は、開いている間に一度だけ聞く。断られたのに何度も聞かない */
+    private var askedNotify = false
 
     private val assetLoader by lazy {
         WebViewAssetLoader.Builder()
@@ -81,6 +85,8 @@ class MainActivity : ComponentActivity() {
         }
         pendingWebPermission = null
     }
+
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val text = pendingSaveText
@@ -218,6 +224,36 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun scanBarcode() {
             runOnUiThread { startCodeScan() }
+        }
+
+        /**
+         * これから知らせるものの並び（JSON の [{at, title, body}]）を受け取り、目覚ましを掛ける。
+         * 知らせるものがあるのに許可が無ければ、ここで初めて許可を聞く。
+         */
+        @JavascriptInterface
+        fun setNotices(json: String) {
+            Notices.save(this@MainActivity, json)
+            if (json == "[]" || askedNotify || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+            if (hasPermission(Manifest.permission.POST_NOTIFICATIONS)) return
+            askedNotify = true
+            runOnUiThread { askNotify.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        }
+
+        /** 通知を出せる状態か。端末の設定で止められていると、設定の画面でそう伝える */
+        @JavascriptInterface
+        fun notifyAllowed(): Boolean = Notices.allowed(this@MainActivity)
+
+        /** このアプリの通知の設定を開く。一度断ると、許可はそこからしか出せない */
+        @JavascriptInterface
+        fun openNotifySettings() {
+            runOnUiThread {
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                } else {
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                }
+                runCatching { startActivity(intent) }
+            }
         }
     }
 

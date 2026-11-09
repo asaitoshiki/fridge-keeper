@@ -50,6 +50,11 @@
   const ICON_BASKET = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5h17l-1.4 8.1a2 2 0 0 1-2 1.7H6.9a2 2 0 0 1-2-1.7z"/><path d="M8.5 9.5 11 4.5"/><path d="M15.5 9.5 13 4.5"/><path d="M9.5 13v3M14.5 13v3"/></svg>';
   const ICON_SCAN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 8.5v7M11 8.5v7M14.5 8.5v7M17.5 8.5v7"/></svg>';
 
+  /* Android へ渡す先の長さ。アプリを開かない日が続いても、この間は鳴る */
+  const NOTICE_AHEAD_DAYS = 30;
+  /* 前に渡した中身。変わっていなければ渡さない（描き直しは何度も起きるため） */
+  let sentNotices = null;
+
   const root = document.getElementById('app');
   const dialog = buildDialog();
   const confirmDialog = buildConfirmDialog();
@@ -90,6 +95,8 @@
     setCompartmentTemps(state.layout);
     setRoomTemp(roomInfo().room);
     const today = todayIso();
+    /* 食材や設定を変えたら、描き直しのたびにここを通る。お知らせの予定もここで渡し直す */
+    syncNotices();
     /**
      * 描き直しでは中身を丸ごと入れ替えるので、何もしないと先頭へ飛ぶ。
      * 段を選ぶ・大きさを変えるたびに冷蔵庫の上まで戻されては、
@@ -1025,10 +1032,8 @@
           </label>
           ${timingRows(state.notify.timings, 'global')}
           <p class="hint">期限の何日前の何時に知らせるかを、いくつでも決められます。食材ごとに変えるときは、その食材の編集の画面で決めます。</p>
-          <p class="hint">
-            Web 版では通知を鳴らせません。この設定は Android 版で使われます。
-            通知は届かないことがあるので、アプリを開けば必ず状況が分かる作りにしてあります。
-          </p>
+          ${notifyStatusMarkup()}
+          <p class="hint">通知は届かないことがあるので、アプリを開けば必ず状況が分かる作りにしてあります。</p>
         </section>
 
 
@@ -1336,6 +1341,8 @@
     bindSettings();
 
     /* お知らせはその場で反映する。保存ボタンを押し忘れて変わらない、を避ける */
+    const notifySettings = root.querySelector('#notify-open-settings');
+    if (notifySettings) notifySettings.addEventListener('click', () => androidBridge().openNotifySettings());
     const notifyEnabled = root.querySelector('#notify-enabled');
     if (notifyEnabled) {
       notifyEnabled.addEventListener('change', () => {
@@ -2854,6 +2861,18 @@
     }
   }
 
+  /** 通知が鳴るかどうか。ブラウザでは鳴らせず、Android でも端末の設定で止められていると鳴らない */
+  function notifyStatusMarkup() {
+    const bridge = androidBridge();
+    if (!bridge || !bridge.notifyAllowed) {
+      return '<p class="hint">ブラウザ版では通知を鳴らせません。通知は Android のアプリで鳴ります。</p>';
+    }
+    if (bridge.notifyAllowed()) return '';
+    return `
+      <p class="hint hint-warn">端末の設定で、このアプリの通知が止められています。このままでは知らせが届きません。</p>
+      <button class="btn" type="button" id="notify-open-settings">通知を許可する</button>`;
+  }
+
   /** Android のアプリの中で動いているときだけ、端末の機能へのつなぎが見える */
   function androidBridge() {
     return typeof window.FridgeAndroid === 'object' && window.FridgeAndroid ? window.FridgeAndroid : null;
@@ -3712,13 +3731,13 @@
   }
 
   /**
-   * これから7日のうちに知らせる予定。時刻ごとにまとめる。
-   * Web では鳴らせないが、いつ何が知らされるかをお知らせの画面で見られるようにする。
+   * これから days 日のうちに知らせる予定。時刻ごとにまとめる。
+   * お知らせの画面に並べるほか、Android のアプリへ渡して通知にする。
    */
-  function upcomingNotices(today) {
+  function upcomingNotices(today, days = 7) {
     if (!state.notify.enabled) return [];
     const now = Date.now();
-    const limit = now + 7 * 24 * 60 * 60 * 1000;
+    const limit = now + days * 24 * 60 * 60 * 1000;
     const slots = new Map();
     state.items.forEach((item) => {
       const u = urgencyOf(item, kindFor(item), today);
@@ -3733,6 +3752,33 @@
       });
     });
     return [...slots.values()].sort((a, b) => a.at - b.at);
+  }
+
+
+  /**
+   * これから知らせるものを Android のアプリへ渡す。保存のたびに丸ごと渡し直す。
+   * 消費期限のものは見出しで分ける。推定の期限には必ず「目安」を付ける。
+   */
+  function syncNotices() {
+    const bridge = androidBridge();
+    if (!bridge || !bridge.setNotices) return;
+    const notices = upcomingNotices(todayIso(), NOTICE_AHEAD_DAYS).map((slot) => {
+      const useBy = slot.entries.some((x) => x.item.expiryType === 'USE_BY' && !x.u.estimated);
+      const body = slot.entries.map((x) => {
+        const left = x.days === 0 ? '今日まで' : `あと${x.days}日`;
+        const kind = x.item.expiryType === 'USE_BY' && !x.u.estimated ? '消費期限' : '';
+        return `${x.item.name} ${kind}${left}${x.u.estimated ? '（目安）' : ''}`;
+      }).join('、');
+      return {
+        at: slot.at,
+        title: useBy ? '消費期限が近いものがあります' : `期限が近いものが${slot.entries.length}件あります`,
+        body,
+      };
+    });
+    const json = JSON.stringify(notices);
+    if (json === sentNotices) return;
+    sentNotices = json;
+    bridge.setNotices(json);
   }
 
   /**

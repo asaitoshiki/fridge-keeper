@@ -13,6 +13,9 @@
       画面と食材のデータは端末の中だけで完結させ、外へは送らない。
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 期限のお知らせ。端末を入れ直したら、消えた目覚ましを掛け直す -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -34,5 +37,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".NoticeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

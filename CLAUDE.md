@@ -132,6 +132,8 @@ GitHub Pages は JS と CSS に10分のキャッシュを付ける。直した�
 
 知らせるタイミングは並び（`state.notify.timings`、`[{daysBefore, time}]`）で、いくつでも持てる。並びは `cleanTimings()` で整える。
 食材ごとの `item.notifyTimings` は null=設定どおり / []=知らせない / 並び=その食材だけ。前の `notifyDaysBefore` / `notifyTime` は読み替え済みで、もう使わない。
+通知を鳴らすのは Android のアプリだけ。ウェブ版が描き直しのたびに `syncNotices()` で先30日分の予定（`[{at, title, body}]`）を `FridgeAndroid.setNotices()` へ渡し、
+アプリ側（`android-web/.../Notices.kt`）は控えておいて、いちばん近いものに目覚ましを掛ける。中身が変わらなければ渡さない。推定の期限には通知でも「目安」を付ける。
 
 ## 温度帯だけの形の場所
 
