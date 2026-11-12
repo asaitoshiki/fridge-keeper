@@ -78,7 +78,8 @@
    * 天気予報を使う同意があれば、開いたときに気温を取り直す（3時間に一度まで）。
    * 天気予報を使わず位置情報だけなら、月に一度だけ地域を決め直す。
    */
-  if (state.climate.mode === 'AUTO') {
+  function refreshClimate() {
+    if (state.climate.mode !== 'AUTO') return;
     const weather = state.climate.weather;
     if (weather.consent === 'GRANTED') {
       if (!weather.fetchedAt || Date.now() - Date.parse(weather.fetchedAt) > 3 * 60 * 60 * 1000) fetchWeather(true);
@@ -87,6 +88,20 @@
       locateRegion(true);
     }
   }
+  refreshClimate();
+
+  /**
+   * アプリに戻ってきたとき。スマホではアプリを閉じずに何日も置かれるので、
+   * 戻ってきたら今日の日付で描き直す。そうしないと、残りの日数が開いた日のまま止まる。
+   * 何か入力している最中（シートが開いている・文字を打っている）は、消してしまうので描き直さない。
+   */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    refreshClimate();
+    const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+    if (document.querySelector('dialog[open]') || typing) { syncNotices(); return; }
+    render();
+  });
 
   /* --- 描画 ------------------------------------------------------------ */
 
@@ -109,11 +124,11 @@
       appBar(),
       '<main class="screen">',
       view === 'fridge' ? summary(today) : '',
-      view === 'fridge' ? streakBanner(today) : '',
-      view === 'fridge' && !editingLayout ? locationAsk() : '',
       view === 'fridge' && !editingLayout ? placementAdvice(today) : '',
       paneHead(),
       paneFor(view, today),
+      /* 一度きりのお願いなので、いちばん見たい冷蔵庫の図を押し下げない。図の下に置く */
+      view === 'fridge' && !editingLayout ? locationAsk() : '',
       view === 'fridge' || view === 'notices' ? disclaimer() : '',
       '</main>',
       quickBar(),
@@ -209,12 +224,14 @@
       .filter((x) => wantsNotice(x.item, x.u.days))
       .sort((a, b) => a.u.days - b.u.days);
 
+    /* 食品ロスなしの日数は、日付の横に小さく添える。別の札にすると冷蔵庫の図が下へ押される */
+    const eyebrow = `<span class="summary-eyebrow"><span>今日 ${formatDate(today)}</span><span class="summary-streak">食品ロスなし <b>${streakDays(state.logs, state.startedAt, today)}</b>日</span></span>`;
+
     if (urgent.length === 0) {
       return `
         <section class="summary" data-level="NONE">
-          <span class="summary-eyebrow">今日 ${formatDate(today)}</span>
+          ${eyebrow}
           <span class="summary-head">${Math.max(...state.notify.timings.map((t) => t.daysBefore))}日以内に期限を迎える食材はありません</span>
-          <span class="summary-names">在庫 ${state.items.length} 件を管理中です。</span>
         </section>`;
     }
 
@@ -229,28 +246,11 @@
      */
     return `
       <button class="summary summary-link" type="button" data-view="notices" data-level="${worst}">
-        <span class="summary-eyebrow">今日 ${formatDate(today)}</span>
+        ${eyebrow}
         <span class="summary-head">使い切りたい食材が <b>${urgent.length}</b> つあります</span>
         <span class="summary-names">${names}${rest}${expired > 0 ? `／うち期限超過 ${expired}件` : ''}</span>
-        <span class="summary-go">お知らせで見る</span>
+        <span class="summary-go" aria-hidden="true">›</span>
       </button>`;
-  }
-
-  /**
-   * 食品ロスなし継続日数。捨てた記録を入れると0に戻る。
-   * 「捨てなかった」ことを積み上げて見せる、ポジティブな動機付けの数字。
-   */
-  function streakBanner(today) {
-    if (state.items.length === 0 && state.logs.length === 0) return '';
-    const days = streakDays(state.logs, state.startedAt, today);
-    const best = Math.max(state.bestStreak, days);
-
-    return `
-      <section class="streak">
-        <span class="streak-label">食品ロスなし</span>
-        <span class="streak-days"><b>${days}</b>日</span>
-        <span class="streak-best">最高 ${best}日</span>
-      </section>`;
   }
 
   /* --- 季節と地域に合わせた保存の提案 ------------------------------------------ */
@@ -284,12 +284,12 @@
     if (!('geolocation' in navigator)) return '';
     return `
       <section class="advice advice-ask">
-        <span class="advice-head">気温に合わせて、保存方法を提案します</span>
-        <span class="advice-body">天気予報の気温から部屋の温度を見積もり、常温に置いた食材の目安とおすすめの置き場所を出します。
-          そのために、おおよその位置（約10km単位）を天気予報のサービス（Open-Meteo）に送ります。
+        <span class="advice-head">気温に合わせて目安を調整できます</span>
+        <span class="advice-body">天気予報の気温から部屋の温度を見積もり、常温の食材の目安と置き場所の提案に使います。
+          送るのは約10km単位のおおよその位置だけで、送り先は天気予報のサービス（Open-Meteo）です。
           食材の情報は送りません。位置はこの端末にも残しません。</span>
         <div class="advice-actions">
-          <button class="btn btn-primary" type="button" id="weather-yes">天気と位置情報を使う</button>
+          <button class="btn btn-primary" type="button" id="weather-yes">天気と位置を使う</button>
           <button class="btn btn-ghost" type="button" id="weather-no">使わない</button>
         </div>
       </section>`;
@@ -609,7 +609,8 @@
         </div>
         <div class="row" data-level="${u.level}" data-estimated="${u.estimated}">
           <span class="row-bar" aria-hidden="true"></span>
-          ${item.icon ? `<span class="row-icon" aria-hidden="true">${item.icon}</span>` : ''}
+          ${/* 絵の無い食材でも枠は置く。列の数が変わると行の並びが崩れる */ ''}
+          <span class="row-icon" aria-hidden="true">${item.icon || ''}</span>
           <span class="row-main">
             <span class="row-name">${esc(item.name)}${item.quantity > 1 ? `<span class="qty">×${item.quantity}</span>` : ''}</span>
             <span class="row-meta">
@@ -649,11 +650,13 @@
           <header><h3>${title}</h3><span>${entries.length}件</span></header>
           ${note ? `<p>${note}</p>` : ''}
           <ul>
+            ${/* 押すとその食材のシートが開く。ここで食べた・捨てたを記録できるように */ ''}
             ${entries.map((x) => `
-              <li>
+              <li><button class="notice-item" type="button" data-notice-item="${x.item.id}">
                 <span>${esc(x.item.name)}</span>
                 <em>${remainingLabel(x.u.days)}${x.u.estimated ? '（目安）' : ''}</em>
-              </li>`).join('')}
+                <i aria-hidden="true">›</i>
+              </button></li>`).join('')}
           </ul>
         </section>`;
     };
@@ -671,7 +674,7 @@
           <section class="notice-group" data-tone="plain">
             <header><h3>まだ冷蔵庫に入れていません</h3><span>${unplaced.length}件</span></header>
             <p>入れる場所を決めると、期限の目安が付きます。</p>
-            <ul>${unplaced.map((i) => `<li><span>${esc(i.name)}</span><em>未収納</em></li>`).join('')}</ul>
+            <ul>${unplaced.map((i) => `<li><button class="notice-item" type="button" data-notice-item="${i.id}"><span>${esc(i.name)}</span><em>未収納</em><i aria-hidden="true">›</i></button></li>`).join('')}</ul>
           </section>` : ''}
 
         ${upcomingMarkup(today)}
@@ -1275,11 +1278,13 @@
     return `
       <div class="quickbar">
         <form class="quick-add" id="quick-form">
-          <input type="text" id="quick-input" placeholder="買ってきたものを入れる" autocomplete="off">
-          <button class="quick-scan" type="button" id="quick-foods" aria-label="よく使う食品から選ぶ">${ICON_BASKET}</button>
-          <button class="quick-scan" type="button" id="quick-barcode" aria-label="バーコードを読む">${ICON_SCAN}</button>
-          <button class="quick-go" type="submit" aria-label="入れる">入れる</button>
+          <div class="quick-field">
+            <input type="text" id="quick-input" placeholder="買ってきたもの" autocomplete="off" enterkeyhint="done">
+            <button class="quick-scan" type="button" id="quick-foods" aria-label="よく使う食品から選ぶ">${ICON_BASKET}</button>
+            <button class="quick-scan" type="button" id="quick-barcode" aria-label="バーコードを読む">${ICON_SCAN}</button>
+          </div>
           <button class="quick-more" type="button" id="open-full" aria-label="詳しく入力">詳しく</button>
+          <button class="quick-go" type="submit" aria-label="入れる">入れる</button>
         </form>
       </div>`;
   }
@@ -1287,6 +1292,9 @@
   /* --- 操作 ------------------------------------------------------------ */
 
   function bind(today) {
+    root.querySelectorAll('[data-notice-item]').forEach((el) => {
+      el.addEventListener('click', () => openActions(el.dataset.noticeItem));
+    });
     root.querySelectorAll('[data-view]').forEach((el) => {
       el.addEventListener('click', () => {
         view = el.dataset.view;
@@ -2137,8 +2145,29 @@
     el.id = 'actions';
     el.innerHTML = `
       <div class="sheet-form action-form">
-        <h2 id="action-title"></h2>
-        <p id="action-sub"></p>
+        <header class="action-head">
+          <div>
+            <h2 id="action-title"></h2>
+            <p id="action-sub"></p>
+          </div>
+          <button class="sheet-close" type="button" data-act="close" aria-label="閉じる">×</button>
+        </header>
+        <p class="action-tip" id="action-tip" hidden></p>
+        <button class="action-btn action-place" type="button" data-act="place" hidden>
+          <b id="place-label"></b><span id="place-sub"></span>
+        </button>
+        <div class="eat-row" id="eat-row">
+          <button class="action-btn" type="button" data-act="eat">食べた<span id="eat-sub">1つ減らす</span></button>
+          <div class="eat-stepper" role="group" aria-label="食べた数">
+            <button class="step-btn" type="button" data-eat-step="-1" aria-label="1つ少なく">−</button>
+            <output id="eat-count" aria-live="polite">1</output>
+            <button class="step-btn" type="button" data-eat-step="1" aria-label="1つ多く">＋</button>
+          </div>
+        </div>
+        <div class="action-pair">
+          <button class="action-btn action-main" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
+          <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>ロスなしが0日に戻る</span></button>
+        </div>
         <div class="expiry-row">
           <span class="state-label">期限</span>
           <div class="expiry-inputs">
@@ -2152,20 +2181,6 @@
           ${expiryHelperMarkup('act')}
           <button class="link-btn" type="button" id="act-clear" hidden>期限を消して目安に戻す</button>
         </div>
-        <p class="action-tip" id="action-tip" hidden></p>
-        <button class="action-btn action-place" type="button" data-act="place" hidden>
-          <b id="place-label"></b><span id="place-sub"></span>
-        </button>
-        <div class="eat-row" id="eat-row">
-          <button class="action-btn" type="button" data-act="eat">食べた<span id="eat-sub">1つ減らす</span></button>
-          <div class="eat-stepper" role="group" aria-label="食べた数">
-            <button class="step-btn" type="button" data-eat-step="-1" aria-label="1つ少なく">−</button>
-            <output id="eat-count" aria-live="polite">1</output>
-            <button class="step-btn" type="button" data-eat-step="1" aria-label="1つ多く">＋</button>
-          </div>
-        </div>
-        <button class="action-btn" type="button" data-act="finish">食べきった<span>在庫から消す</span></button>
-        <button class="action-btn action-bad" type="button" data-act="discard">捨てた<span>継続日数が0に戻ります</span></button>
         <div class="state-row">
           <span class="state-label">いまの状態</span>
           <div class="state-chips" id="state-chips"></div>
@@ -2177,9 +2192,11 @@
             <button class="state-chip" type="button" data-wrap="off">むき出し</button>
           </div>
         </div>
-        <button class="action-btn action-plain" type="button" data-act="edit">編集する</button>
-        <button class="action-btn action-plain action-delete" type="button" data-act="delete">削除する<span>登録の間違いなど。食べた・捨てたには数えません</span></button>
-        <button class="btn btn-ghost" type="button" data-act="close">閉じる</button>
+        <div class="action-foot">
+          <button class="btn btn-ghost" type="button" data-act="edit">編集する</button>
+          <button class="btn btn-ghost action-delete" type="button" data-act="delete">削除する</button>
+        </div>
+        <p class="action-foot-note">削除は登録の間違いを消すときに。食べた・捨てたには数えません。</p>
       </div>`;
 
     /**

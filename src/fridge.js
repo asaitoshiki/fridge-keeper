@@ -532,12 +532,13 @@ const FridgeView = (function () {
 
   function trayMarkup(items, state, opts) {
     return `
-      <section class="tray" data-drop="">
+      <section class="tray${items.length > 0 ? '' : ' is-empty'}" data-drop="">
         <header class="tray-head">
           <span>買ってきたもの</span>
-          <span class="tray-hint">${items.length > 0 ? 'つまんで冷蔵庫へ入れる' : 'ここは空です'}</span>
+          <span class="tray-hint">${items.length > 0 ? 'つまんで冷蔵庫へ入れる' : state.items.length > 0 ? 'ありません' : '下の欄から入れると、ここに並びます'}</span>
         </header>
-        <div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>
+        ${/* 空のときは一行だけにして、冷蔵庫の図を上に寄せる */ ''}
+        ${items.length > 0 ? `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>` : ''}
         ${items.length > 0 ? `
           <button class="tray-place" type="button" data-place-all>おすすめの場所に全部入れる</button>` : ''}
       </section>`;

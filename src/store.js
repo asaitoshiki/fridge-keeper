@@ -3,7 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
-const APP_VERSION = '0.8.0';
+const APP_VERSION = '0.9.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
