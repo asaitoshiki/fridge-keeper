@@ -73,4 +73,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     // バーコードの読み取り。Google Play 開発者サービスの読み取り画面を使う
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // レシートの読み取り。撮る画面は Google Play 開発者サービスのもの、文字を読むのは端末の中（通信しない）
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
 }

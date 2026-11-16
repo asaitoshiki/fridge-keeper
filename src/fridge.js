@@ -536,6 +536,8 @@ const FridgeView = (function () {
         <header class="tray-head">
           <span>買ってきたもの</span>
           <span class="tray-hint">${items.length > 0 ? 'つまんで冷蔵庫へ入れる' : state.items.length > 0 ? 'ありません' : '下の欄から入れると、ここに並びます'}</span>
+          ${/* レシートを読めるのは Android のアプリの中だけ。読めないところでは出さない */ ''}
+          ${opts.onReceipt ? '<button class="tray-receipt" type="button" data-receipt>レシートから入れる</button>' : ''}
         </header>
         ${/* 空のときは一行だけにして、冷蔵庫の図を上に寄せる */ ''}
         ${items.length > 0 ? `<div class="comp-items">${items.map((i) => chip(i, state, opts)).join('')}</div>` : ''}
@@ -1123,6 +1125,8 @@ const FridgeView = (function () {
     });
     const seasoning = root.querySelector('[data-seasoning-toggle]');
     if (seasoning) seasoning.addEventListener('click', () => { showSeasonings = !showSeasonings; opts.onRedraw(); });
+    const receipt = root.querySelector('[data-receipt]');
+    if (receipt) receipt.addEventListener('click', () => opts.onReceipt());
     const placeAll = root.querySelector('[data-place-all]');
     if (placeAll && opts.onPlaceAll) placeAll.addEventListener('click', () => opts.onPlaceAll());
   }

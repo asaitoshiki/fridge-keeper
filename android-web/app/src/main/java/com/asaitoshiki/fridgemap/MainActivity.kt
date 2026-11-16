@@ -34,6 +34,14 @@ import androidx.webkit.WebViewAssetLoader
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+import androidx.activity.result.IntentSenderRequest
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -84,6 +92,17 @@ class MainActivity : ComponentActivity() {
             if (granted) request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request.deny()
         }
         pendingWebPermission = null
+    }
+
+    /** レシートを撮り終えたとき。撮った紙の画像から、端末の中で文字を読む */
+    private val scanReceiptPages = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages
+        if (result.resultCode != RESULT_OK || pages.isNullOrEmpty()) {
+            sendReceipt(null, "CANCELED")
+            return@registerForActivityResult
+        }
+        sendReceipt(null, "READING")
+        readReceiptPages(pages.map { it.imageUri }, 0, JSONArray(), 0)
     }
 
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -179,6 +198,61 @@ class MainActivity : ComponentActivity() {
         }.onFailure { sendBarcode(null, "FAILED") }
     }
 
+    /**
+     * レシートを撮る。紙の端を見つけてまっすぐに直すところまで、端末の撮る画面がやってくれる。
+     * 長いレシートは何枚かに分けて撮れる。写真から選ぶこともできる。このアプリはカメラの権限を使わない。
+     */
+    private fun startReceiptScan() {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(4)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        runCatching {
+            GmsDocumentScanning.getClient(options).getStartScanIntent(this)
+                .addOnSuccessListener { sender -> scanReceiptPages.launch(IntentSenderRequest.Builder(sender).build()) }
+                .addOnFailureListener { sendReceipt(null, "FAILED") }
+        }.onFailure { sendReceipt(null, "FAILED") }
+    }
+
+    /**
+     * 撮った画像を一枚ずつ読み、行の文字と位置を集める。位置はウェブ版が同じ行をつなぐのに使う。
+     * 二枚目からは、前の画像の下に続くものとして縦の位置をずらす。
+     */
+    private fun readReceiptPages(uris: List<Uri>, index: Int, lines: JSONArray, offset: Int) {
+        if (index >= uris.size) {
+            sendReceipt(lines.toString(), "OK")
+            return
+        }
+        val image = runCatching { InputImage.fromFilePath(this, uris[index]) }.getOrElse {
+            sendReceipt(null, "FAILED")
+            return
+        }
+        TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build()).process(image)
+            .addOnSuccessListener { text ->
+                text.textBlocks.forEach { block ->
+                    block.lines.forEach { line ->
+                        val box = line.boundingBox ?: return@forEach
+                        lines.put(
+                            JSONObject()
+                                .put("text", line.text)
+                                .put("x", box.left)
+                                .put("y", box.top + offset)
+                                .put("h", box.height()),
+                        )
+                    }
+                }
+                readReceiptPages(uris, index + 1, lines, offset + image.height)
+            }
+            .addOnFailureListener { sendReceipt(null, "FAILED") }
+    }
+
+    private fun sendReceipt(json: String?, status: String) {
+        val text = if (json == null) "null" else JSONObject.quote(json)
+        webView.evaluateJavascript("window.fridgeReceiptResult && window.fridgeReceiptResult($text, '$status')", null)
+    }
+
     private fun sendBarcode(value: String?, status: String) {
         val text = if (value == null) "null" else JSONObject.quote(value)
         webView.evaluateJavascript("window.fridgeBarcodeResult && window.fridgeBarcodeResult($text, '$status')", null)
@@ -224,6 +298,15 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun scanBarcode() {
             runOnUiThread { startCodeScan() }
+        }
+
+        /**
+         * レシートを撮って読む。結果は window.fridgeReceiptResult(行の並びの JSON, 状態) で返す。
+         * 状態は READING（読んでいる途中）/ OK / CANCELED / FAILED。
+         */
+        @JavascriptInterface
+        fun scanReceipt() {
+            runOnUiThread { startReceiptScan() }
         }
 
         /**

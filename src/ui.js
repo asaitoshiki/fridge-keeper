@@ -63,6 +63,7 @@
   const scanDialog = buildScanDialog();
   const foodsDialog = buildFoodsDialog();
   const shapesDialog = buildShapesDialog();
+  const receiptDialog = buildReceiptDialog();
   document.body.appendChild(dialog);
   document.body.appendChild(confirmDialog);
   document.body.appendChild(actionDialog);
@@ -70,6 +71,7 @@
   document.body.appendChild(scanDialog);
   document.body.appendChild(foodsDialog);
   document.body.appendChild(shapesDialog);
+  document.body.appendChild(receiptDialog);
 
   applyTheme();
   render();
@@ -571,6 +573,8 @@
       selection,
       kindFor,
       today,
+      /* 描くときにもボタンを出すかどうかが要る */
+      onReceipt: canReadReceipt() ? startReceipt : null,
     })}</div>`;
   }
 
@@ -1594,6 +1598,7 @@
         today,
         onMove: moveItem,
         onPlaceAll: placeAllAtBest,
+        onReceipt: canReadReceipt() ? startReceipt : null,
         onOpenItem: openActions,
         onRedraw: render,
         onLayout: applyLayout,
@@ -3315,6 +3320,92 @@
    * 買ってきたものをまとめて入れるときは、一件ずつ打つのが一番の重荷になる。
    * 選んでも閉じないので、続けて何件でも入れられる。
    */
+  /* --- レシートから入れる ----------------------------------------------------- */
+
+  /** レシートを読めるか。文字を読むのは端末の文字認識なので、Android のアプリの中だけ */
+  function canReadReceipt() {
+    const bridge = androidBridge();
+    return Boolean(bridge && bridge.scanReceipt);
+  }
+
+  /**
+   * レシートを撮って読む。撮る画面と文字認識はアプリ側（端末の中だけで処理する）。
+   * 結果は window.fridgeReceiptResult(行の並びの JSON, 状態) で返る。
+   * 状態は READING（撮り終えて読んでいる）/ OK / CANCELED / FAILED。
+   */
+  function startReceipt() {
+    window.fridgeReceiptResult = (json, status) => {
+      if (status === 'READING') { toast('レシートを読んでいます…'); return; }
+      window.fridgeReceiptResult = null;
+      if (status === 'CANCELED') return;
+      if (status !== 'OK') { toast('レシートを読めませんでした。もう一度試すか、手で入れてください'); return; }
+      const found = Receipt.parse(JSON.parse(json), FOOD_PRESETS);
+      if (found.length === 0) { toast('レシートから食材を見つけられませんでした。明るい所でまっすぐ撮ってみてください'); return; }
+      openReceipt(found);
+    };
+    androidBridge().scanReceipt();
+  }
+
+  function buildReceiptDialog() {
+    const el = document.createElement('dialog');
+    el.id = 'receipt';
+    el.innerHTML = `
+      <form class="sheet-form receipt-form" method="dialog">
+        <div class="form-head">
+          <h2>レシートから入れる</h2>
+          <button class="icon-btn" type="button" id="receipt-close" aria-label="閉じる">×</button>
+        </div>
+        <p class="hint">読み取った候補です。読み違いがあるので、入れるものにだけ印を付け、名前が違っていたら直してください。</p>
+        <ul class="receipt-list" id="receipt-list"></ul>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" id="receipt-add"></button>
+        </div>
+      </form>`;
+    const refresh = () => {
+      const n = el.querySelectorAll('.receipt-row input[type="checkbox"]:checked').length;
+      const button = el.querySelector('#receipt-add');
+      button.textContent = n > 0 ? `${n}件を入れる` : '入れるものを選んでください';
+      button.disabled = n === 0;
+    };
+    el.refresh = refresh;
+    el.querySelector('#receipt-close').addEventListener('click', () => el.close());
+    el.querySelector('#receipt-list').addEventListener('change', refresh);
+    el.querySelector('form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const picked = [...el.querySelectorAll('.receipt-row')]
+        .filter((row) => row.querySelector('input[type="checkbox"]').checked)
+        .map((row) => ({
+          name: row.querySelector('.receipt-name').value.trim(),
+          quantity: Math.max(1, Math.min(99, Number(row.querySelector('.receipt-qty').value) || 1)),
+        }))
+        .filter((entry) => entry.name);
+      el.close();
+      picked.forEach((entry) => {
+        quickAdd(entry.name, { silent: true });
+        state.items[state.items.length - 1].quantity = entry.quantity;
+      });
+      saveState(state);
+      render();
+      if (picked.length > 0) toast(`${picked.length}件を「買ってきたもの」に入れました`);
+    });
+    return el;
+  }
+
+  /** 候補を並べて開く。見本帳に合ったもの（食べ物の見込みが高いもの）にだけ、初めから印を付けておく */
+  function openReceipt(found) {
+    receiptDialog.querySelector('#receipt-list').innerHTML = found.map((entry, index) => `
+      <li class="receipt-row">
+        <input type="checkbox" id="receipt-${index}" ${entry.known ? 'checked' : ''} aria-label="${esc(entry.name)}を入れる">
+        <div class="receipt-main">
+          <input class="receipt-name" type="text" value="${esc(entry.name)}" aria-label="名前" autocomplete="off">
+          ${entry.raw !== entry.name ? `<span class="receipt-raw">レシートの表記：${esc(entry.raw)}</span>` : ''}
+        </div>
+        <input class="receipt-qty" type="number" inputmode="numeric" min="1" max="99" value="${entry.quantity}" aria-label="個数">
+      </li>`).join('');
+    receiptDialog.refresh();
+    receiptDialog.showModal();
+  }
+
   function buildFoodsDialog() {
     const el = document.createElement('dialog');
     el.id = 'foods';
