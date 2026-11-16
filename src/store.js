@@ -3,7 +3,7 @@
    サーバーへの送信は一切行わない（仕様書2章の制約）。
    =========================================================================== */
 
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '1.0.0';
 const STORAGE_KEY = 'fridgekeeper.state.v2';
 const LEGACY_KEY = 'fridgekeeper.state.v1';
 
@@ -368,14 +368,19 @@ function emptyState() {
   };
 }
 
+/* 読めなかった保存データの逃がし先と、保存まわりの具合。画面がこれを見て知らせを出す */
+const RESCUE_KEY = 'fridgekeeper.state.unreadable';
+const storageHealth = { loadFailed: false, saveFailed: false };
+
 /**
  * 保存された状態を読む。
  * プライベートウィンドウやサイトデータ遮断では localStorage が例外を投げるため、
  * 読めなかった場合も空の状態でアプリが成立するようにしておく。
  */
 function loadState() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return normalize(JSON.parse(raw));
 
     const legacy = localStorage.getItem(LEGACY_KEY);
@@ -383,15 +388,35 @@ function loadState() {
 
     return withSample(emptyState());
   } catch (e) {
+    /**
+     * 保存データはあるのに読めなかった。このまま新しく始めると、次の保存で上書きされて二度と戻せない。
+     * 読めなかった中身を別の場所へ逃がしておき、画面でそう伝える。
+     */
+    if (raw) {
+      storageHealth.loadFailed = true;
+      try { localStorage.setItem(RESCUE_KEY, raw); } catch (e2) { /* 逃がせなくても画面は動かす */ }
+    }
     return withSample(emptyState());
   }
+}
+
+/** 読めなかった保存データ。無ければ null */
+function rescuedData() {
+  try { return localStorage.getItem(RESCUE_KEY); } catch (e) { return null; }
+}
+
+function discardRescuedData() {
+  try { localStorage.removeItem(RESCUE_KEY); } catch (e) { /* 消せなくても困らない */ }
+  storageHealth.loadFailed = false;
 }
 
 function saveState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    storageHealth.saveFailed = false;
   } catch (e) {
-    /* 保存できなくても画面は動かす。次回起動時に消えるだけで操作は妨げない */
+    /* 保存できなくても画面は動かす。ただし黙っていると次に開いたとき消えているので、画面で知らせる */
+    storageHealth.saveFailed = true;
   }
 }
 
@@ -401,7 +426,15 @@ function saveState(state) {
  * 元の見え方をなるべく保つ値に読み替える。
  */
 function normalize(parsed) {
-  const state = { ...emptyState(), ...parsed };
+  const state = { ...emptyState(), ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}) };
+  /**
+   * 並びであるべきものが欠けていたり、中に空の要素が混ざっていたりすると、描くところで止まって
+   * アプリが開けなくなる。開けないと控えも取れないので、ここだけは読める形に直してから先へ進む。
+   */
+  const rows = (list) => (Array.isArray(list) ? list.filter((x) => x && typeof x === 'object') : []);
+  state.items = rows(state.items).filter((item) => typeof item.name === 'string');
+  state.logs = rows(state.logs);
+  state.shopping = rows(state.shopping);
   if (!Array.isArray(state.layout) || state.layout.length === 0) {
     state.layout = zoneLayout();
     state.layoutMode = 'ZONES';

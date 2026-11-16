@@ -123,6 +123,8 @@
     root.innerHTML = [
       appBar(),
       '<main class="screen">',
+      healthNote(),
+      view === 'fridge' && !editingLayout ? sampleNote() : '',
       view === 'fridge' ? summary(today) : '',
       view === 'fridge' && !editingLayout ? placementAdvice(today) : '',
       paneHead(),
@@ -155,6 +157,45 @@
         <span class="tally">${state.items.length}</span>
         ${bannerMarkup()}
       </header>`;
+  }
+
+  /**
+   * 保存まわりの不具合の知らせ。黙っているとデータが消えたことに後で気づくので、どの画面でも上に出す。
+   */
+  function healthNote() {
+    const notes = [];
+    if (storageHealth.saveFailed) {
+      notes.push(`
+        <section class="health-note">
+          <p><b>いまの内容を保存できていません。</b>端末の空き容量が足りないか、保存が止められています。
+            このまま閉じると変更が消えます。設定の「控えを書き出す」で残せます。</p>
+        </section>`);
+    }
+    if (rescuedData()) {
+      notes.push(`
+        <section class="health-note">
+          <p><b>前の保存データを読めませんでした。</b>新しく始めていますが、読めなかったデータは消さずに残してあります。
+            書き出して開発者へ送ると、戻せることがあります。</p>
+          <div class="health-actions">
+            <button class="btn btn-ghost" type="button" id="rescue-export">読めなかったデータを書き出す</button>
+            <button class="btn btn-ghost" type="button" id="rescue-discard">もう要らない</button>
+          </div>
+        </section>`);
+    }
+    return notes.join('');
+  }
+
+  /**
+   * 初めて開いたときは見本の食材を入れてある。見本だと分からないと自分の冷蔵庫と混ざるので、
+   * 消すまでのあいだ、いちばん上に断りと消すボタンを出す。
+   */
+  function sampleNote() {
+    if (!state.sampleLoaded || !state.items.some((i) => i.sample)) return '';
+    return `
+      <section class="sample-note">
+        <p><b>見本の食材が入っています。</b>使い方が分かったら消して、下の欄から自分の食材を入れてください。</p>
+        <button class="btn btn-primary" type="button" id="clear-sample">見本を消して始める</button>
+      </section>`;
   }
 
   /** 下の固定タブ。Android 版の NavigationBar にそのまま対応する */
@@ -1086,6 +1127,13 @@
             <dt>利用開始</dt><dd>${formatDate(state.startedAt)}</dd>
           </dl>
           <p class="hint">
+            期限の目安は一般的な参考の日数で、食品の安全を保証するものではありません。
+          </p>
+          <p class="hint">
+            使っているもの：気温は <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> の天気予報（CC BY 4.0）。
+            バーコードの読み取りは ZXing（Apache License 2.0）と、Android では Google のコードスキャナー。
+          </p>
+          <p class="hint">
             <a href="https://github.com/asaitoshiki/fridge-keeper" target="_blank" rel="noopener">ソースコード</a>
           </p>
         </section>
@@ -1514,6 +1562,18 @@
     const shareFridge = root.querySelector('#share-fridge');
     if (shareFridge) {
       shareFridge.addEventListener('click', () => openShare('冷蔵庫の地図', fridgeShareText(today)));
+    }
+
+    const rescueExport = root.querySelector('#rescue-export');
+    if (rescueExport) rescueExport.addEventListener('click', () => saveTextFile(`fridge-map-unreadable-${todayIso()}.json`, rescuedData()));
+    const rescueDiscard = root.querySelector('#rescue-discard');
+    if (rescueDiscard) {
+      rescueDiscard.addEventListener('click', () => {
+        askConfirm('読めなかったデータを消しますか', '消すと、前のデータを戻す手がかりが無くなります。', () => {
+          discardRescuedData();
+          render();
+        }, '消す');
+      });
     }
 
     const clear = root.querySelector('#clear-sample');
@@ -2588,6 +2648,9 @@
         <p class="scan-result" id="editor-note" hidden></p>
         <div class="hint" id="f-hint"></div>
 
+        ${/* あまり使わない項目は畳んでおく。登録のたびに読み飛ばす手間を減らす */ ''}
+        <details class="more-fields" id="f-more">
+        <summary>お知らせとメモ</summary>
         <div class="field">
           <label for="f-notify-mode">知らせる <span class="optional">この食材だけ</span></label>
           <select id="f-notify-mode">
@@ -2602,6 +2665,7 @@
           <label for="f-memo">メモ <span class="optional">— 任意</span></label>
           <textarea id="f-memo" name="memo" rows="2" placeholder="半額だったもの／半玉だけ残り など"></textarea>
         </div>
+        </details>
 
         <div class="form-actions">
           <button class="btn btn-primary" type="submit" id="editor-save">保存する</button>
@@ -2687,6 +2751,8 @@
     const own = item ? item.notifyTimings : null;
     editorTimings = Array.isArray(own) && own.length > 0 ? own.map((t) => ({ ...t })) : [];
     dialog.querySelector('#f-notify-mode').value = !Array.isArray(own) ? 'default' : own.length === 0 ? 'off' : 'custom';
+    /* 中身があるときだけ開いておく。入れたメモや設定が畳まれて見えない、を避ける */
+    dialog.querySelector('#f-more').open = Boolean((item && item.memo) || Array.isArray(own));
     renderEditorTimings();
     setEditorNote('');
     resetExpiryHelper(dialog.querySelector('[data-expiry-helper="editor"]'));
@@ -3126,24 +3192,29 @@
 
   /** 控えをファイルとして渡す。端末の中だけに置く作りなので、持ち出す道を用意しておく */
   function downloadBackup() {
+    saveTextFile(`fridge-map-${todayIso()}.json`, exportState(state));
+  }
+
+  /** 文字をファイルに保存する。控えの書き出しと、読めなかったデータの書き出しで使う */
+  function saveTextFile(name, text) {
     /* Android のアプリの中ではリンクからの保存が効かないので、保存先を選ぶ画面へつなぐ */
     const bridge = androidBridge();
     if (bridge) {
-      bridge.saveFile(`fridge-map-${todayIso()}.json`, exportState(state));
+      bridge.saveFile(name, text);
       return;
     }
-    const blob = new Blob([exportState(state)], { type: 'application/json' });
+    const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     /* Chrome は日本語のファイル名を捨てて「download」にしてしまうので ASCII で付ける */
-    link.download = `fridge-map-${todayIso()}.json`;
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();
     /* 取り消しが早すぎると保存前に失効する端末があるので、少し待ってから */
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast('控えを書き出しました');
+    toast('書き出しました');
   }
 
   async function restoreBackup(file) {

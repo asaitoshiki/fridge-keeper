@@ -3066,3 +3066,31 @@ dialog::backdrop { background: rgba(10, 14, 15, .45); }
   .quick-more { padding: 0 6px; }
   .quick-field .quick-scan { width: 36px; }
 }
+
+/* 初めて開いたときの見本の断り */
+.sample-note {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border-radius: var(--radius); background: var(--accent-soft); color: var(--ink);
+}
+.sample-note p { margin: 0; font-size: 13.5px; line-height: 1.7; }
+.sample-note .btn { min-height: 44px; }
+
+/* 登録画面の、畳んである項目 */
+.more-fields { border-top: 1px solid var(--line); padding-top: 4px; }
+.more-fields > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  min-height: 44px; font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+}
+.more-fields > summary::-webkit-details-marker { display: none; }
+.more-fields > summary::after { content: "＋"; color: var(--ink-3); font-weight: 400; }
+.more-fields[open] > summary::after { content: "−"; }
+.more-fields[open] { display: flex; flex-direction: column; gap: 15px; }
+
+/* 保存まわりの不具合の知らせ */
+.health-note {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  border-radius: var(--radius); background: var(--warn-bg); border: 1px solid var(--warn-bar); color: var(--ink);
+}
+.health-note p { margin: 0; font-size: 13.5px; line-height: 1.7; }
+.health-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.health-actions .btn { flex: 1 1 auto; min-height: 44px; font-size: 13.5px; }
