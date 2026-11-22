@@ -159,6 +159,22 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) webView.loadUrl(START_URL) else webView.restoreState(savedInstanceState)
     }
 
+    /** 開いている間に通知で答えたら、すぐ在庫に写してもらう */
+    override fun onResume() {
+        super.onResume()
+        Notices.onAnswer = { runOnUiThread { pullAnswers() } }
+        pullAnswers()
+    }
+
+    override fun onPause() {
+        Notices.onAnswer = null
+        super.onPause()
+    }
+
+    private fun pullAnswers() {
+        webView.evaluateJavascript("window.fridgeTakeAnswers && window.fridgeTakeAnswers()", null)
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
@@ -321,6 +337,10 @@ class MainActivity : ComponentActivity() {
             askedNotify = true
             runOnUiThread { askNotify.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
+
+        /** 通知の中で答えた分（JSON の [{itemId, action, at}]）を渡し、空にする */
+        @JavascriptInterface
+        fun takeAnswers(): String = Notices.takeAnswers(this@MainActivity)
 
         /** 通知を出せる状態か。端末の設定で止められていると、設定の画面でそう伝える */
         @JavascriptInterface

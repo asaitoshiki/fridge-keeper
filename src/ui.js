@@ -54,6 +54,9 @@
   const NOTICE_AHEAD_DAYS = 30;
   /* 前に渡した中身。変わっていなければ渡さない（描き直しは何度も起きるため） */
   let sentNotices = null;
+  /* 帯を出しておく時間。取り消せる帯は、押し間違いに気づくまでの間を見て長めにする */
+  const UNDO_MS = 12000;
+  const TOAST_MS = 5000;
 
   const root = document.getElementById('app');
   const dialog = buildDialog();
@@ -75,6 +78,7 @@
 
   applyTheme();
   render();
+  takeNoticeAnswers();
 
   /**
    * 天気予報を使う同意があれば、開いたときに気温を取り直す（3時間に一度まで）。
@@ -100,6 +104,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
     refreshClimate();
+    takeNoticeAnswers();
     const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
     if (document.querySelector('dialog[open]') || typing) { syncNotices(); return; }
     render();
@@ -2147,9 +2152,6 @@
 
   /* --- 取り消しとお知らせの帯 --------------------------------------------- */
 
-  /* 帯を出しておく時間。取り消せる帯は、押し間違いに気づくまでの間を見て長めにする */
-  const UNDO_MS = 12000;
-  const TOAST_MS = 5000;
 
   /**
    * 帯は画面の上の見出しの場所に重ねて出す。
@@ -3941,24 +3943,54 @@
   function syncNotices() {
     const bridge = androidBridge();
     if (!bridge || !bridge.setNotices) return;
-    const notices = upcomingNotices(todayIso(), NOTICE_AHEAD_DAYS).map((slot) => {
-      const useBy = slot.entries.some((x) => x.item.expiryType === 'USE_BY' && !x.u.estimated);
-      const body = slot.entries.map((x) => {
-        const left = x.days === 0 ? '今日まで' : `あと${x.days}日`;
-        const kind = x.item.expiryType === 'USE_BY' && !x.u.estimated ? '消費期限' : '';
-        return `${x.item.name} ${kind}${left}${x.u.estimated ? '（目安）' : ''}`;
-      }).join('、');
+    /**
+     * 食材ごとに一つの知らせにする。「食べましたか」と聞き、通知の中のボタンでその場で答えられるように。
+     * 食べたときに記録し忘れても、通知が聞いてくれれば在庫と冷蔵庫の中がずれない。
+     * 同じ時刻のものは端末がまとめて表示する。
+     */
+    const notices = upcomingNotices(todayIso(), NOTICE_AHEAD_DAYS).flatMap((slot) => slot.entries.map((x) => {
+      const useBy = x.item.expiryType === 'USE_BY' && !x.u.estimated;
+      const left = x.days === 0 ? '今日まで' : `あと${x.days}日`;
       return {
         at: slot.at,
-        title: useBy ? '消費期限が近いものがあります' : `期限が近いものが${slot.entries.length}件あります`,
-        body,
+        itemId: x.item.id,
+        title: `${x.item.name}、食べましたか？`,
+        body: `${useBy ? '消費期限 ' : '期限 '}${left}${x.u.estimated ? '（目安）' : ''}。残っていれば早めに使ってください。`,
       };
-    });
+    }));
     const json = JSON.stringify(notices);
     if (json === sentNotices) return;
     sentNotices = json;
     bridge.setNotices(json);
   }
+
+  /**
+   * 通知の中で答えた分を、在庫に写す。答えはアプリが閉じていても端末の中に溜めてあり、
+   * 開いたとき・戻ってきたとき・開いている間に答えたときに受け取る。
+   * まとめて一度だけ控えを取るので、帯の「取り消す」で全部まとめて戻せる。
+   */
+  function takeNoticeAnswers() {
+    const bridge = androidBridge();
+    if (!bridge || !bridge.takeAnswers) return;
+    const answers = JSON.parse(bridge.takeAnswers() || '[]')
+      .filter((a) => ['EATEN', 'DISCARDED'].includes(a.action) && findItem(a.itemId));
+    if (answers.length === 0) return;
+    const names = answers.map((a) => findItem(a.itemId).name);
+    snapshot(answers.length === 1
+      ? `通知の答え: ${names[0]}を「${answers[0].action === 'EATEN' ? '食べきった' : '捨てた'}」にしました`
+      : `通知で答えた${answers.length}件（${names.join('、')}）を記録しました`);
+    answers.forEach((answer) => {
+      const item = findItem(answer.itemId);
+      if (!item) return;
+      if (answer.action === 'DISCARDED') {
+        state.bestStreak = Math.max(state.bestStreak, streakDays(state.logs, state.startedAt, todayIso()));
+      }
+      logConsumption(item, answer.action, item.quantity);
+      state.items = state.items.filter((i) => i.id !== item.id);
+    });
+    commit();
+  }
+  window.fridgeTakeAnswers = () => takeNoticeAnswers();
 
   /**
    * この食材を、残り days 日の時点で知らせるか。
