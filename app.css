@@ -3113,3 +3113,190 @@ dialog::backdrop { background: rgba(10, 14, 15, .45); }
 .receipt-qty { flex: none; width: 56px; text-align: center; }
 .receipt-raw { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .receipt-form .form-actions .btn { flex: 1; }
+
+/* ===========================================================================
+   やわらかい見た目
+   よく使われている暮らしのアプリにならい、角を大きく丸め、絵文字を丸い台に乗せ、
+   残りの日数を色付きの丸い札にする。主役の色は冷蔵庫らしい明るい青（緑は「安全」に読めるので使わない）。
+   赤・橙・黄は今までどおり期限の緊急度だけ。押せるものは丸く大きく、指で押しやすく。
+   =========================================================================== */
+
+:root {
+  --ground: #f3f6fb;
+  --surface: #ffffff;
+  --surface-2: #edf1f8;
+  --line: #e3e8f1;
+  --line-strong: #cfd7e5;
+  --ink: #1d2433;
+  --ink-2: #546072;
+  --ink-3: #8a94a6;
+  --accent: #3a7bf2;
+  --accent-soft: #e4edff;
+  --accent-deep: #2a63d1;
+  --on-accent: #ffffff;
+  --tile: #f0f4fb;
+  --critical-bg: #ffe9e7;
+  --warn-bg: #fff1df;
+  --caution-bg: #fff7d6;
+  --cavity-1: #e3e8f1;
+  --cavity-2: #f6f8fc;
+  --chrome-lo: #b9c3d4;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --lift: 0 1px 2px rgba(29, 36, 51, .04), 0 2px 8px -2px rgba(29, 36, 51, .06);
+  --shadow: 0 2px 6px rgba(29, 36, 51, .05), 0 12px 32px -16px rgba(29, 36, 51, .18);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #10141b; --surface: #1a1f29; --surface-2: #232a36; --line: #2a3240; --line-strong: #39434f;
+    --ink: #eef2f8; --ink-2: #b6c0cf; --ink-3: #808b9c;
+    --accent: #7aa5ff; --accent-soft: #1d2d4d; --accent-deep: #5d8cf0; --on-accent: #0c1526;
+    --tile: #242b38; --critical-bg: #3a1d1c; --warn-bg: #3a2a17; --caution-bg: #352f15;
+    --cavity-1: #2a3240; --cavity-2: #161b23; --chrome-lo: #4a5566;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #10141b; --surface: #1a1f29; --surface-2: #232a36; --line: #2a3240; --line-strong: #39434f;
+  --ink: #eef2f8; --ink-2: #b6c0cf; --ink-3: #808b9c;
+  --accent: #7aa5ff; --accent-soft: #1d2d4d; --accent-deep: #5d8cf0; --on-accent: #0c1526;
+  --tile: #242b38; --critical-bg: #3a1d1c; --warn-bg: #3a2a17; --caution-bg: #352f15;
+  --cavity-1: #2a3240; --cavity-2: #161b23; --chrome-lo: #4a5566;
+}
+
+/* 見出し */
+.wordmark { font-size: 19px; font-weight: 800; letter-spacing: .01em; }
+.pane-head h2 { font-size: 22px; font-weight: 800; }
+.appbar { background: var(--ground); border-bottom: 0; }
+.tally { background: var(--accent-soft); color: var(--accent); font-weight: 700; border-radius: 999px; min-width: 28px; }
+
+/* カード */
+.summary, .notice-group, .settings-pane .settings-block, .hero, .stats .stat, .sheet {
+  border: 0; border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.advice { border: 0; border-radius: var(--radius); box-shadow: var(--lift); }
+
+/* 要約: 左に大きな絵、右に一言。急ぐものがあれば地の色をうっすら変える */
+.summary { padding: 14px 40px 14px 70px; min-height: 76px; justify-content: center; }
+.summary::before {
+  content: "✨"; position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px; border-radius: 16px; background: var(--accent-soft);
+  display: grid; place-items: center; font-size: 22px;
+}
+.summary[data-level="CAUTION"]::before { content: "🕒"; background: var(--caution-bg); }
+.summary[data-level="WARN"]::before { content: "⏰"; background: var(--warn-bg); }
+.summary[data-level="CRITICAL"]::before, .summary[data-level="EXPIRED"]::before { content: "⚠️"; background: var(--critical-bg); }
+.summary, .notice-group { border-left: 0; }
+
+/* 押せるもの: 丸く */
+.btn { border-radius: 999px; min-height: 48px; font-weight: 700; }
+.btn-ghost { background: var(--surface-2); border-color: transparent; }
+.mini, .tab-action { border: 0; background: var(--surface); box-shadow: var(--lift); color: var(--ink-2); font-weight: 700; }
+.state-chip, .ex-chip { border: 0; background: var(--surface-2); border-radius: 999px; font-weight: 600; }
+.state-chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.segmented, div.seg { background: var(--surface-2); border-radius: 999px; }
+.segmented > .seg, .seg-btn { border-radius: 999px; }
+.seg[aria-pressed="true"], .seg-btn[aria-pressed="true"] { box-shadow: var(--lift); color: var(--accent); }
+
+/* 食材のチップ: 丸い札。絵は丸い台に乗せ、残りの日数は色付きの札にする */
+.chip {
+  border: 0; border-radius: 999px; padding: 4px 6px 4px 4px; gap: 6px; min-height: 38px;
+  background: var(--surface); box-shadow: var(--lift), inset 0 0 0 1px var(--line);
+}
+.chip[data-level="EXPIRED"], .chip[data-level="CRITICAL"] { box-shadow: var(--lift), inset 0 0 0 1.5px var(--critical-bar); }
+.chip[data-level="WARN"] { box-shadow: var(--lift), inset 0 0 0 1.5px var(--warn-bar); }
+.chip-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 999px; background: var(--tile);
+  display: grid; place-items: center; font-size: 16px; padding: 0;
+}
+.chip-name { font-weight: 700; font-size: 13px; }
+.chip-est { border-radius: 999px; border-style: dashed; padding: 0 5px; font-size: 9.5px; }
+.chip-days {
+  border-radius: 999px; padding: 2px 8px; background: var(--surface-2); color: var(--ink-2);
+  font-size: 11.5px; font-weight: 700; line-height: 1.5;
+}
+.chip[data-level="EXPIRED"] .chip-days, .chip[data-level="CRITICAL"] .chip-days { background: var(--critical-bg); color: var(--critical); }
+.chip[data-level="WARN"] .chip-days { background: var(--warn-bg); color: var(--warn); }
+.chip[data-level="CAUTION"] .chip-days { background: var(--caution-bg); color: var(--caution); }
+.chip[data-useby="true"] .chip-days::before { content: "消費 "; font-weight: 800; }
+.chip[data-estimated="true"] { border-left-style: none; }
+
+/* 冷蔵庫の図: 白くやわらかい箱 */
+.unit[data-type="FRIDGE"] .case, .unit[data-type="SHELF"] .case {
+  border: 0; border-radius: 28px; background: var(--surface); box-shadow: var(--shadow); padding: 10px;
+}
+.case-feet { display: none; }
+.comp { border-radius: 18px; background: var(--cavity-2); box-shadow: none; }
+.comp-name { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.comp-count { background: var(--surface); border-radius: 999px; padding: 0 7px; font-weight: 700; color: var(--ink-3); }
+.comp[data-kind="FREEZER"] { background: repeating-linear-gradient(135deg, var(--cavity-2) 0 10px, var(--frost) 10px 20px); }
+
+/* 買ってきたもの */
+.tray { border: 1.5px dashed var(--line-strong); border-radius: var(--radius); background: var(--surface); }
+.tray.is-empty { background: transparent; }
+.tray-place { border-radius: 999px; min-height: 48px; font-weight: 700; }
+
+/* 期限順の一覧: 絵は丸い台に、残りの日数は色付きの札に */
+.row-wrap + .row-wrap { border-top: 0; }
+.row-wrap + .row-wrap .row::before { content: ""; position: absolute; left: 64px; right: 16px; top: 0; height: 1px; background: var(--line); }
+.row { grid-template-columns: 4px 60px 1fr auto; }
+.row-bar { border-radius: 0 4px 4px 0; margin: 10px 0; }
+.row[data-level="NORMAL"] .row-bar, .row[data-level="NONE"] .row-bar { background: transparent; }
+.row-icon { display: grid; place-items: center; }
+.row-icon::before { content: ""; }
+.row-icon:not(:empty) {
+  width: 42px; height: 42px; margin: auto; border-radius: 999px; background: var(--tile); font-size: 21px;
+}
+.row-main { padding: 12px 4px; }
+.row-name { font-weight: 700; font-size: 15px; }
+.row-side { padding-right: 16px; gap: 3px; }
+.row-days { border-radius: 999px; padding: 3px 10px; background: var(--surface-2); font-size: 13px; }
+.row[data-level="EXPIRED"] .row-days, .row[data-level="CRITICAL"] .row-days { background: var(--critical-bg); }
+.row[data-level="WARN"] .row-days { background: var(--warn-bg); }
+.row[data-level="CAUTION"] .row-days { background: var(--caution-bg); }
+.row[data-estimated="true"] .row-days { opacity: 1; }
+
+/* お知らせ */
+.notice-group { padding: 16px 18px; }
+.notice-group header h3::before { margin-right: 6px; }
+.notice-group[data-tone="critical"] header h3::before { content: "⚠️"; }
+.notice-group[data-tone="warn"] header h3::before { content: "⏰"; }
+.notice-group[data-tone="plain"] header h3::before { content: "🗓️"; }
+.notice-group li em { border-radius: 999px; padding: 2px 9px; background: var(--surface-2); font-weight: 700; }
+.notice-group[data-tone="critical"] li em { background: var(--critical-bg); }
+.notice-group[data-tone="warn"] li em { background: var(--warn-bg); }
+
+/* 入力バー */
+.quickbar { background: var(--surface); box-shadow: 0 -6px 20px -14px rgba(29, 36, 51, .35); border-top: 0; }
+.quick-field { border-radius: 999px; }
+.quick-add .quick-field input { border-radius: 999px; padding-left: 18px; }
+.quick-go { border-radius: 999px; padding: 0 20px; }
+.quick-field .quick-scan { border-radius: 999px; }
+
+/* 下のタブ */
+.navbar { border-top: 0; box-shadow: 0 -1px 0 var(--line); }
+.nav-item svg { padding: 5px 18px; }
+
+/* 入力欄 */
+.quick-add input, .field input, .field select, .field textarea, .ex-text,
+.expiry-inputs select, .expiry-inputs input, .temp-input input, .timing-row select, .timing-row input {
+  border: 0; background: var(--surface-2); border-radius: 14px;
+}
+.field textarea { border-radius: 16px; }
+
+/* シート */
+.sheet-form { border-radius: 28px; }
+@media (max-width: 600px) { dialog#actions .sheet-form { border-radius: 28px 28px 0 0; } }
+.action-btn { border: 0; background: var(--surface-2); border-radius: 20px; }
+.action-main { background: var(--accent); color: var(--on-accent); }
+.action-bad { background: var(--critical-bg); color: var(--critical); }
+.action-place { background: var(--accent-soft); border: 0; }
+.action-foot .btn { background: var(--surface-2); }
+.sheet-close { background: var(--surface-2); }
+.eat-stepper { border: 0; background: var(--surface-2); border-radius: 20px; }
+
+/* 見本・お願いのカード */
+.sample-note { border-radius: var(--radius); }
+.advice-ask { border-radius: var(--radius); }
+.seasoning-toggle, .chip-group { border-radius: 999px; }
+.bar-fill, :root[data-theme="dark"] .bar-fill { background: var(--accent); border-radius: 999px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bar-fill { background: var(--accent); } }

@@ -81,8 +81,9 @@ object Notices {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val answers = runCatching { JSONArray(prefs.getString(KEY_ANSWERS, "[]")) }.getOrElse { JSONArray() }
         answers.put(JSONObject().put("itemId", itemId).put("action", action).put("at", System.currentTimeMillis()))
+        /* 食べきった・捨てたなら、この食材のこの先の知らせは要らない。1つ食べただけなら残す */
         val rest = JSONArray()
-        load(context).filter { it.optString("itemId") != itemId }.forEach { rest.put(it) }
+        load(context).filter { action == "EAT_ONE" || it.optString("itemId") != itemId }.forEach { rest.put(it) }
         prefs.edit().putString(KEY_ANSWERS, answers.toString()).putString(KEY_LIST, rest.toString()).apply()
         scheduleNext(context)
         onAnswer?.invoke()
@@ -137,7 +138,13 @@ object Notices {
             .setGroup(GROUP)
         /* その場で答えられるボタン。答えはアプリを開いたときに在庫へ写る */
         if (itemId.isNotEmpty()) {
-            listOf("EATEN" to "食べきった", "DISCARDED" to "捨てた", "KEEP" to "まだある").forEachIndexed { index, (action, label) ->
+            /* 数のあるもの（卵など）は一つずつ減らせるようにする。ボタンは3つまでなので、捨てたはアプリの中で */
+            val actions = if (notice.optInt("quantity", 1) > 1) {
+                listOf("EAT_ONE" to "1つ食べた", "EATEN" to "食べきった", "KEEP" to "まだある")
+            } else {
+                listOf("EATEN" to "食べきった", "DISCARDED" to "捨てた", "KEEP" to "まだある")
+            }
+            actions.forEachIndexed { index, (action, label) ->
                 val intent = Intent(context, NoticeReceiver::class.java)
                     .setAction(ACTION_ANSWER)
                     .putExtra(EXTRA_ITEM, itemId)

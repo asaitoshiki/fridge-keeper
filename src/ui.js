@@ -3951,10 +3951,13 @@
     const notices = upcomingNotices(todayIso(), NOTICE_AHEAD_DAYS).flatMap((slot) => slot.entries.map((x) => {
       const useBy = x.item.expiryType === 'USE_BY' && !x.u.estimated;
       const left = x.days === 0 ? '今日まで' : `あと${x.days}日`;
+      /* 数のあるもの（卵など）は残りの数を見せ、通知のボタンを「1つ食べた」にする */
+      const many = x.item.quantity > 1;
       return {
         at: slot.at,
         itemId: x.item.id,
-        title: `${x.item.name}、食べましたか？`,
+        quantity: x.item.quantity,
+        title: many ? `${x.item.name}（残り${x.item.quantity}）、食べましたか？` : `${x.item.name}、食べましたか？`,
         body: `${useBy ? '消費期限 ' : '期限 '}${left}${x.u.estimated ? '（目安）' : ''}。残っていれば早めに使ってください。`,
       };
     }));
@@ -3972,21 +3975,25 @@
   function takeNoticeAnswers() {
     const bridge = androidBridge();
     if (!bridge || !bridge.takeAnswers) return;
+    const LABELS = { EATEN: '食べきった', EAT_ONE: '1つ食べた', DISCARDED: '捨てた' };
     const answers = JSON.parse(bridge.takeAnswers() || '[]')
-      .filter((a) => ['EATEN', 'DISCARDED'].includes(a.action) && findItem(a.itemId));
+      .filter((a) => LABELS[a.action] && findItem(a.itemId));
     if (answers.length === 0) return;
     const names = answers.map((a) => findItem(a.itemId).name);
     snapshot(answers.length === 1
-      ? `通知の答え: ${names[0]}を「${answers[0].action === 'EATEN' ? '食べきった' : '捨てた'}」にしました`
-      : `通知で答えた${answers.length}件（${names.join('、')}）を記録しました`);
+      ? `通知の答え: ${names[0]}を「${LABELS[answers[0].action]}」にしました`
+      : `通知で答えた${answers.length}件（${[...new Set(names)].join('、')}）を記録しました`);
     answers.forEach((answer) => {
       const item = findItem(answer.itemId);
       if (!item) return;
       if (answer.action === 'DISCARDED') {
         state.bestStreak = Math.max(state.bestStreak, streakDays(state.logs, state.startedAt, todayIso()));
       }
-      logConsumption(item, answer.action, item.quantity);
-      state.items = state.items.filter((i) => i.id !== item.id);
+      /* 1つ食べたは一つ減らすだけ。残りが無くなったときだけ在庫から消す */
+      const count = answer.action === 'EAT_ONE' ? 1 : item.quantity;
+      logConsumption(item, answer.action === 'DISCARDED' ? 'DISCARDED' : 'EATEN', count);
+      item.quantity -= count;
+      if (item.quantity <= 0) state.items = state.items.filter((i) => i.id !== item.id);
     });
     commit();
   }
