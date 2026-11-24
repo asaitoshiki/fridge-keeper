@@ -54,6 +54,8 @@
   const NOTICE_AHEAD_DAYS = 30;
   /* 前に渡した中身。変わっていなければ渡さない（描き直しは何度も起きるため） */
   let sentNotices = null;
+  /* 開発者からのお知らせの置き場所。リポジトリの announcements.json を書き換えて push すると届く */
+  const NEWS_URL = 'https://raw.githubusercontent.com/asaitoshiki/fridge-keeper/main/announcements.json';
   /* 帯を出しておく時間。取り消せる帯は、押し間違いに気づくまでの間を見て長めにする */
   const UNDO_MS = 12000;
   const TOAST_MS = 5000;
@@ -95,6 +97,9 @@
     }
   }
   refreshClimate();
+  refreshNews(false);
+  /* アプリ側の「受け取るか」を、こちらの設定に合わせておく */
+  if (androidBridge() && androidBridge().setNewsEnabled) androidBridge().setNewsEnabled(state.inbox.newsEnabled);
 
   /**
    * アプリに戻ってきたとき。スマホではアプリを閉じずに何日も置かれるので、
@@ -104,6 +109,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
     refreshClimate();
+    refreshNews(false);
     takeNoticeAnswers();
     const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
     if (document.querySelector('dialog[open]') || typing) { syncNotices(); return; }
@@ -149,6 +155,8 @@
       if (screen) screen.scrollTop = keepTop;
     }
     renderedView = view;
+    /* お知らせの画面を見たら、開発者からのお知らせは読んだことにする（「新着」の印はこの描画では残る） */
+    if (view === 'notices') markNewsRead();
 
     bind(today);
   }
@@ -207,9 +215,12 @@
 
   /** 下の固定タブ。Android 版の NavigationBar にそのまま対応する */
   function navBar() {
+    /* お知らせのタブには、まだ見ていない届いたお知らせの数を付ける */
+    const unread = inboxCount(todayIso());
     const item = (key, label, icon) => `
       <button class="nav-item" type="button" data-view="${key}" aria-pressed="${view === key || (key === 'report' && view === 'history')}">
         ${icon}<span>${label}</span>
+        ${key === 'notices' && unread > 0 ? `<b class="nav-badge" aria-label="未読${unread}件">${unread > 99 ? '99+' : unread}</b>` : ''}
       </button>`;
 
     return `
@@ -715,6 +726,7 @@
 
     return `
       <div class="notices">
+        ${inboxMarkup(today)}
         ${nothing ? '<p class="notices-empty">いま気にすることはありません。</p>' : ''}
         ${group('期限を過ぎています', 'critical', expired,
           '見た目とにおいを確かめてから判断してください。消費期限のものは食べないでください。')}
@@ -730,10 +742,162 @@
         ${upcomingMarkup(today)}
 
         <p class="notices-note">
-          Android 版では、決めたタイミングごとに通知します（${state.notify.timings.map((t) => `${notifyDayLabel(t.daysBefore)} ${t.time}`).join('・')}）。
+          決めたタイミング（${state.notify.timings.map((t) => `${notifyDayLabel(t.daysBefore)} ${t.time}`).join('・')}）になると、
+          「届いたお知らせ」に食材が届きます。Android のアプリで通知を許可していれば、同じものが通知でも届きます。
           タイミングは設定から足したり変えたりできます。
         </p>
       </div>`;
+  }
+
+  /* --- 届いたお知らせ（受信箱） ---------------------------------------------- */
+
+  /**
+   * 時刻が来た「食べましたか？」。通知と同じものを、アプリの中でも見て答えられるようにする。
+   * 通知を許可していない人や、通知を見逃した人のため。食材ごとに、いちばん最近の時刻の分だけ出す。
+   * 「まだある」と答えたあとは、次の時刻が来るまで出さない。2週間より前のものは出さない。
+   */
+  function dueQuestions(today) {
+    if (!state.notify.enabled) return [];
+    const now = Date.now();
+    const from = now - 14 * 24 * 60 * 60 * 1000;
+    const out = [];
+    state.items.forEach((item) => {
+      const u = urgencyOf(item, kindFor(item), today);
+      if (!u.date) return;
+      let latest = 0;
+      timingsFor(item).forEach((t) => {
+        const day = addDays(u.date, -t.daysBefore);
+        /* 買う前の日付の知らせは届いていないので出さない */
+        if (day < item.registeredAt) return;
+        const at = new Date(`${day}T${t.time}:00`).getTime();
+        if (at <= now && at >= from && at > latest) latest = at;
+      });
+      if (latest === 0 || (state.inbox.kept[item.id] || 0) >= latest) return;
+      out.push({ item, u, at: latest });
+    });
+    return out.sort((a, b) => b.at - a.at);
+  }
+
+  function unreadNews() {
+    return state.inbox.news.filter((n) => !state.inbox.readNews.includes(n.id));
+  }
+
+  /** お知らせのタブの札の数。答えていない「食べましたか？」と、読んでいない開発者からのお知らせ */
+  function inboxCount(today) {
+    return dueQuestions(today).length + unreadNews().length;
+  }
+
+  /** 「今日 20:00」「昨日 8:00」「11月24日 20:00」の形 */
+  function inboxStamp(at, today) {
+    const d = new Date(at);
+    const day = toIso(d);
+    const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${day === today ? '今日' : day === addDays(today, -1) ? '昨日' : formatDate(day)} ${time}`;
+  }
+
+  function inboxMarkup(today) {
+    const questions = dueQuestions(today);
+    const fresh = unreadNews().map((n) => n.id);
+    const news = state.inbox.news.slice(0, 10);
+    /* 数のあるもの（卵など）は一つずつ減らせるようにする。通知のボタンと同じ並び */
+    const buttons = (item) => (item.quantity > 1
+      ? [['EAT_ONE', '1つ食べた'], ['EATEN', '食べきった'], ['KEEP', 'まだある']]
+      : [['EATEN', '食べきった'], ['DISCARDED', '捨てた'], ['KEEP', 'まだある']])
+      .map(([action, label]) => `<button class="inbox-btn" type="button" data-inbox-answer="${action}" data-inbox-item="${item.id}" data-kind="${action}">${label}</button>`)
+      .join('');
+
+    const questionCards = questions.map(({ item, u, at }) => {
+      const useBy = item.expiryType === 'USE_BY' && !u.estimated;
+      return `
+        <article class="inbox-card" data-level="${u.level}">
+          <span class="inbox-icon" aria-hidden="true">${item.icon || '🍽️'}</span>
+          <div class="inbox-main">
+            <button class="inbox-title" type="button" data-notice-item="${item.id}">${esc(item.name)}${item.quantity > 1 ? `（残り${item.quantity}）` : ''}、食べましたか？</button>
+            <span class="inbox-meta"><em>${useBy ? '消費期限 ' : ''}${remainingLabel(u.days)}${u.estimated ? '（目安）' : ''}</em>・${inboxStamp(at, today)}</span>
+            <div class="inbox-actions">${buttons(item)}</div>
+          </div>
+        </article>`;
+    }).join('');
+
+    const newsCards = news.map((n) => `
+      <article class="inbox-card inbox-news${fresh.includes(n.id) ? ' is-new' : ''}">
+        <span class="inbox-icon" aria-hidden="true">📣</span>
+        <div class="inbox-main">
+          <b class="inbox-title">${esc(n.title)}</b>
+          <span class="inbox-meta">開発者より${n.date ? `・${formatDate(n.date)}` : ''}${fresh.includes(n.id) ? '<i class="inbox-new">新着</i>' : ''}</span>
+          ${n.body ? `<p class="inbox-body">${esc(n.body)}</p>` : ''}
+          ${n.url ? `<a class="inbox-link" href="${esc(n.url)}" target="_blank" rel="noopener">詳しく見る</a>` : ''}
+        </div>
+      </article>`).join('');
+
+    return `
+      <section class="inbox">
+        <header class="inbox-head"><h3>届いたお知らせ</h3>${questions.length > 0 ? `<span>${questions.length}件</span>` : ''}</header>
+        ${questionCards || newsCards ? '' : '<p class="inbox-empty">まだ届いたお知らせはありません。期限が近くなると、ここに「食べましたか？」が届きます。</p>'}
+        ${questionCards}
+        ${newsCards}
+      </section>`;
+  }
+
+  /**
+   * 届いたお知らせへの答え。食べた・捨てたは食材のシートと同じ処理（取り消せる）。
+   * 「まだある」は在庫を変えず、次の時刻まで聞かない。Android の通知に出ている分も消す。
+   */
+  function answerInbox(itemId, action) {
+    const bridge = androidBridge();
+    if (bridge && bridge.cancelItemNotices) bridge.cancelItemNotices(itemId);
+    if (action === 'KEEP') {
+      state.inbox.kept[itemId] = Date.now();
+      saveState(state);
+      render();
+      toast('わかりました。次のタイミングでまた聞きます');
+      return;
+    }
+    /* 1つ食べたは残りがあるので、次の時刻までは聞かない */
+    if (action === 'EAT_ONE') {
+      state.inbox.kept[itemId] = Date.now();
+      eatSome(itemId, 1);
+    } else if (action === 'EATEN') eatAll(itemId);
+    else if (action === 'DISCARDED') discardItem(itemId);
+  }
+
+  /** お知らせの画面を開いたら、開発者からのお知らせを読んだことにする。Android にも伝え、通知を重ねて出さない */
+  function markNewsRead() {
+    const fresh = unreadNews().map((n) => n.id);
+    if (fresh.length === 0) return;
+    state.inbox.readNews = [...state.inbox.readNews, ...fresh].slice(-100);
+    saveState(state);
+    const bridge = androidBridge();
+    if (bridge && bridge.markNewsSeen) bridge.markNewsSeen(JSON.stringify(fresh));
+  }
+
+  /**
+   * 開発者からのお知らせを読み込む（3時間に一度まで）。こちらから送るものは何もない。
+   * 中身は外から来るので、決まった形のものだけを、長さを切って取り込む。
+   */
+  function refreshNews(force) {
+    const inbox = state.inbox;
+    if (!inbox.newsEnabled || typeof fetch !== 'function') return;
+    if (!force && inbox.newsCheckedAt && Date.now() - Date.parse(inbox.newsCheckedAt) < 3 * 60 * 60 * 1000) return;
+    fetch(NEWS_URL, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((list) => {
+        inbox.news = (Array.isArray(list) ? list : [])
+          .filter((n) => n && typeof n.id === 'string' && n.id && typeof n.title === 'string' && n.title)
+          .slice(0, 20)
+          .map((n) => ({
+            id: n.id.slice(0, 40),
+            title: n.title.slice(0, 80),
+            body: typeof n.body === 'string' ? n.body.slice(0, 800) : '',
+            date: typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date) ? n.date : null,
+            url: typeof n.url === 'string' && /^https:\/\//.test(n.url) ? n.url.slice(0, 300) : null,
+          }));
+        inbox.newsCheckedAt = new Date().toISOString();
+        saveState(state);
+        const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+        if (!document.querySelector('dialog[open]') && !typing) render();
+      })
+      .catch(() => { /* 読めないときは前の控えのまま。次に開いたときにまた読む */ });
   }
 
   /** これから7日のうちに知らせる予定。いつ、どの食材が知らされるか */
@@ -1086,6 +1250,11 @@
           ${timingRows(state.notify.timings, 'global')}
           <p class="hint">期限の何日前の何時に知らせるかを、いくつでも決められます。食材ごとに変えるときは、その食材の編集の画面で決めます。</p>
           ${notifyStatusMarkup()}
+          <label class="check-row">
+            <input type="checkbox" id="news-enabled" ${state.inbox.newsEnabled ? 'checked' : ''}>
+            <span>開発者からのお知らせを受け取る</span>
+          </label>
+          <p class="hint">受け取るときは、お知らせの一覧を GitHub から読み込みます。こちらから送るものはありません。</p>
           <p class="hint">通知は届かないことがあるので、アプリを開けば必ず状況が分かる作りにしてあります。</p>
         </section>
 
@@ -1349,6 +1518,9 @@
   /* --- 操作 ------------------------------------------------------------ */
 
   function bind(today) {
+    root.querySelectorAll('[data-inbox-answer]').forEach((el) => {
+      el.addEventListener('click', () => answerInbox(el.dataset.inboxItem, el.dataset.inboxAnswer));
+    });
     root.querySelectorAll('[data-notice-item]').forEach((el) => {
       el.addEventListener('click', () => openActions(el.dataset.noticeItem));
     });
@@ -1408,6 +1580,17 @@
     /* お知らせはその場で反映する。保存ボタンを押し忘れて変わらない、を避ける */
     const notifySettings = root.querySelector('#notify-open-settings');
     if (notifySettings) notifySettings.addEventListener('click', () => androidBridge().openNotifySettings());
+    const newsEnabled = root.querySelector('#news-enabled');
+    if (newsEnabled) {
+      newsEnabled.addEventListener('change', () => {
+        state.inbox.newsEnabled = newsEnabled.checked;
+        saveState(state);
+        const bridge = androidBridge();
+        if (bridge && bridge.setNewsEnabled) bridge.setNewsEnabled(newsEnabled.checked);
+        if (newsEnabled.checked) refreshNews(true);
+        render();
+      });
+    }
     const notifyEnabled = root.querySelector('#notify-enabled');
     if (notifyEnabled) {
       notifyEnabled.addEventListener('change', () => {
@@ -3976,9 +4159,14 @@
     const bridge = androidBridge();
     if (!bridge || !bridge.takeAnswers) return;
     const LABELS = { EATEN: '食べきった', EAT_ONE: '1つ食べた', DISCARDED: '捨てた' };
-    const answers = JSON.parse(bridge.takeAnswers() || '[]')
-      .filter((a) => LABELS[a.action] && findItem(a.itemId));
-    if (answers.length === 0) return;
+    const all = JSON.parse(bridge.takeAnswers() || '[]').filter((a) => findItem(a.itemId));
+    /* 通知で「まだある」と答えた分は、アプリの中の届いたお知らせでも聞かない */
+    all.filter((a) => a.action === 'KEEP' || a.action === 'EAT_ONE').forEach((a) => { state.inbox.kept[a.itemId] = Number(a.at) || Date.now(); });
+    const answers = all.filter((a) => LABELS[a.action]);
+    if (answers.length === 0) {
+      if (all.length > 0) { saveState(state); render(); }
+      return;
+    }
     const names = answers.map((a) => findItem(a.itemId).name);
     snapshot(answers.length === 1
       ? `通知の答え: ${names[0]}を「${LABELS[answers[0].action]}」にしました`
@@ -3998,6 +4186,14 @@
     commit();
   }
   window.fridgeTakeAnswers = () => takeNoticeAnswers();
+  /* 通知を押して開いたときは、お知らせの画面を出す */
+  window.fridgeOpenView = (name) => {
+    if (!['fridge', 'shopping', 'notices', 'report', 'settings'].includes(name)) return;
+    document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+    view = name;
+    editingLayout = false;
+    render();
+  };
 
   /**
    * この食材を、残り days 日の時点で知らせるか。

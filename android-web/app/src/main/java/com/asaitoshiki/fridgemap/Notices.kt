@@ -77,16 +77,23 @@ object Notices {
      */
     fun answer(context: Context, itemId: String, action: String, notificationId: Int) {
         NotificationManagerCompat.from(context).cancel(notificationId)
-        if (action == "KEEP") return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val answers = runCatching { JSONArray(prefs.getString(KEY_ANSWERS, "[]")) }.getOrElse { JSONArray() }
         answers.put(JSONObject().put("itemId", itemId).put("action", action).put("at", System.currentTimeMillis()))
-        /* 食べきった・捨てたなら、この食材のこの先の知らせは要らない。1つ食べただけなら残す */
+        /* 食べきった・捨てたなら、この食材のこの先の知らせは要らない。1つ食べた・まだあるなら残す */
         val rest = JSONArray()
-        load(context).filter { action == "EAT_ONE" || it.optString("itemId") != itemId }.forEach { rest.put(it) }
+        load(context).filter { action == "EAT_ONE" || action == "KEEP" || it.optString("itemId") != itemId }.forEach { rest.put(it) }
         prefs.edit().putString(KEY_ANSWERS, answers.toString()).putString(KEY_LIST, rest.toString()).apply()
         scheduleNext(context)
         onAnswer?.invoke()
+    }
+
+    /** アプリの中で答えた食材の、出ている通知を消す */
+    fun cancelItem(context: Context, itemId: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.activeNotifications
+            .filter { it.notification.extras.getString(EXTRA_ITEM) == itemId }
+            .forEach { manager.cancel(it.id) }
     }
 
     /** 溜まっている答えを渡して空にする */
@@ -121,7 +128,10 @@ object Notices {
         }
         val open = PendingIntent.getActivity(
             context, 0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            /* 押したら、お知らせの画面（届いたお知らせ）を開く */
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(MainActivity.EXTRA_VIEW, "notices"),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val body = notice.optString("body")
@@ -136,6 +146,8 @@ object Notices {
             .setContentIntent(open)
             .setAutoCancel(true)
             .setGroup(GROUP)
+            /* アプリの中で答えたとき、この食材の通知を探して消せるよう、食材の id を持たせておく */
+            .addExtras(android.os.Bundle().apply { putString(EXTRA_ITEM, itemId) })
         /* その場で答えられるボタン。答えはアプリを開いたときに在庫へ写る */
         if (itemId.isNotEmpty()) {
             /* 数のあるもの（卵など）は一つずつ減らせるようにする。ボタンは3つまでなので、捨てたはアプリの中で */
@@ -179,7 +191,16 @@ class NoticeReceiver : BroadcastReceiver() {
             )
             return
         }
+        if (intent.action == News.ACTION_CHECK) {
+            /* 通信するので別の流れで。終わるまで受け取りを生かしておく */
+            val pending = goAsync()
+            Thread {
+                try { News.check(context) } finally { pending.finish() }
+            }.start()
+            return
+        }
         /* 端末を入れ直すと目覚ましは消えるので掛け直す。その間に過ぎたものも fire が拾う */
         Notices.fire(context)
+        News.schedule(context)
     }
 }

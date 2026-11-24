@@ -340,6 +340,12 @@ function emptyState() {
     /* 前は入力欄の上に「最近入れたもの」を並べていた。いまは使わないが、古い控えを読めるよう残してある */
     templates: [],
     /* 通知の設定。Web では鳴らせないが、Android へ持っていく値をここで決めておく */
+    /**
+     * 届いたお知らせ。通知を許可していない人も、アプリの中で同じものを見られるようにする。
+     * kept: 「まだある」と答えた食材と、その時刻（それより後の知らせでまた聞く）
+     * news: 開発者からのお知らせ（読み込んだ控え）、readNews: 読んだお知らせの id
+     */
+    inbox: { kept: {}, news: [], readNews: [], newsCheckedAt: null, newsEnabled: true },
     notify: {
       enabled: true, time: '08:00', daysBefore: 3,
       /* 知らせるタイミング。期限の何日前の何時に知らせるかを、いくつでも持てる */
@@ -487,6 +493,18 @@ function normalize(parsed) {
     if (item.notifyTimings !== null) item.notifyTimings = cleanTimings(item.notifyTimings);
   });
   state.notify = { enabled: true, time: '08:00', daysBefore: 3, ...(state.notify || {}) };
+  const inbox = state.inbox && typeof state.inbox === 'object' ? state.inbox : {};
+  state.inbox = {
+    kept: inbox.kept && typeof inbox.kept === 'object' ? inbox.kept : {},
+    news: Array.isArray(inbox.news) ? inbox.news.filter((n) => n && typeof n.id === 'string') : [],
+    readNews: Array.isArray(inbox.readNews) ? inbox.readNews.filter((id) => typeof id === 'string') : [],
+    newsCheckedAt: typeof inbox.newsCheckedAt === 'string' ? inbox.newsCheckedAt : null,
+    newsEnabled: inbox.newsEnabled !== false,
+  };
+  /* もう無い食材の「まだある」は捨てておく */
+  Object.keys(state.inbox.kept).forEach((id) => {
+    if (!state.items.some((item) => item.id === id)) delete state.inbox.kept[id];
+  });
   /* 知らせるタイミングを一つしか持たなかった頃の設定は、その一つを並びの最初にする */
   if (!Array.isArray(state.notify.timings) || state.notify.timings.length === 0) {
     state.notify.timings = [{ daysBefore: state.notify.daysBefore, time: state.notify.time }];

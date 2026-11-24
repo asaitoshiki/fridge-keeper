@@ -3300,3 +3300,50 @@ dialog::backdrop { background: rgba(10, 14, 15, .45); }
 .seasoning-toggle, .chip-group { border-radius: 999px; }
 .bar-fill, :root[data-theme="dark"] .bar-fill { background: var(--accent); border-radius: 999px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bar-fill { background: var(--accent); } }
+
+/* --- 届いたお知らせ ---------------------------------------------------------- */
+.nav-item { position: relative; }
+.nav-badge {
+  position: absolute; top: 2px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--critical-bar); color: #fff; font-size: 11px; font-weight: 800;
+  line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--surface); font-variant-numeric: tabular-nums;
+}
+.inbox { display: flex; flex-direction: column; gap: 10px; }
+.inbox-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px; }
+.inbox-head h3 { margin: 0; font-size: 15px; font-weight: 800; }
+.inbox-head span { font-size: 12px; color: var(--ink-3); font-weight: 700; }
+.inbox-empty { margin: 0; padding: 18px; border-radius: var(--radius); background: var(--surface); box-shadow: var(--lift); font-size: 13px; color: var(--ink-3); line-height: 1.7; }
+.inbox-card {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--radius);
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.inbox-icon {
+  flex: none; width: 44px; height: 44px; border-radius: 999px; background: var(--tile);
+  display: grid; place-items: center; font-size: 22px;
+}
+.inbox-card[data-level="EXPIRED"] .inbox-icon, .inbox-card[data-level="CRITICAL"] .inbox-icon { background: var(--critical-bg); }
+.inbox-card[data-level="WARN"] .inbox-icon { background: var(--warn-bg); }
+.inbox-card[data-level="CAUTION"] .inbox-icon { background: var(--caution-bg); }
+.inbox-news .inbox-icon { background: var(--accent-soft); }
+.inbox-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inbox-title {
+  border: 0; background: none; padding: 0; text-align: left; color: var(--ink); font: inherit;
+  font-size: 15px; font-weight: 800; line-height: 1.45; cursor: pointer;
+}
+.inbox-meta { font-size: 12px; color: var(--ink-3); display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.inbox-meta em { font-style: normal; font-weight: 700; color: var(--ink-2); }
+.inbox-card[data-level="EXPIRED"] .inbox-meta em, .inbox-card[data-level="CRITICAL"] .inbox-meta em { color: var(--critical); }
+.inbox-card[data-level="WARN"] .inbox-meta em { color: var(--warn); }
+.inbox-card[data-level="CAUTION"] .inbox-meta em { color: var(--caution); }
+.inbox-new { font-style: normal; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 800; }
+.inbox-body { margin: 4px 0 0; font-size: 13.5px; line-height: 1.75; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-link { font-size: 13px; font-weight: 700; color: var(--accent); }
+.inbox-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.inbox-btn {
+  flex: 1 1 0; min-width: 0; min-height: 40px; padding: 0 8px; border: 0; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  white-space: nowrap; transition: transform .08s ease;
+}
+.inbox-btn:active { transform: scale(.96); }
+.inbox-btn[data-kind="EATEN"], .inbox-btn[data-kind="EAT_ONE"] { background: var(--accent); color: var(--on-accent); }
+.inbox-btn[data-kind="DISCARDED"] { background: var(--critical-bg); color: var(--critical); }

@@ -67,6 +67,8 @@ class MainActivity : ComponentActivity() {
     private var pendingWebPermission: PermissionRequest? = null
     private var pendingSaveText: String? = null
     private var usedFallback = false
+    /* 通知を押して開いたときに出す画面。ページが読み終わってから渡す */
+    private var pendingView: String? = null
     /* 通知の許可は、開いている間に一度だけ聞く。断られたのに何度も聞かない */
     private var askedNotify = false
 
@@ -156,6 +158,8 @@ class MainActivity : ComponentActivity() {
             }
         })
 
+        pendingView = intent.getStringExtra(EXTRA_VIEW)
+        News.schedule(this)
         if (savedInstanceState == null) webView.loadUrl(START_URL) else webView.restoreState(savedInstanceState)
     }
 
@@ -169,6 +173,19 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         Notices.onAnswer = null
         super.onPause()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        pendingView = intent.getStringExtra(EXTRA_VIEW)
+        deliverView()
+    }
+
+    /** 通知から開いたときは、その画面（お知らせ）を出してもらう */
+    private fun deliverView() {
+        val name = pendingView ?: return
+        pendingView = null
+        webView.evaluateJavascript("window.fridgeOpenView && window.fridgeOpenView(${JSONObject.quote(name)})", null)
     }
 
     private fun pullAnswers() {
@@ -338,6 +355,21 @@ class MainActivity : ComponentActivity() {
             runOnUiThread { askNotify.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
 
+        /** 開発者からのお知らせを受け取るか。設定で切り替えたときに呼ばれる */
+        @JavascriptInterface
+        fun setNewsEnabled(enabled: Boolean) = News.setEnabled(this@MainActivity, enabled)
+
+        /** アプリの中で読んだお知らせ（JSON の id の並び）。もう通知にしない */
+        @JavascriptInterface
+        fun markNewsSeen(json: String) {
+            val ids = runCatching { JSONArray(json) }.getOrNull() ?: return
+            News.markSeen(this@MainActivity, (0 until ids.length()).map { ids.optString(it) }.filter { it.isNotEmpty() })
+        }
+
+        /** アプリの中で答えた食材の、出ている通知を消す */
+        @JavascriptInterface
+        fun cancelItemNotices(itemId: String) = Notices.cancelItem(this@MainActivity, itemId)
+
         /** 通知の中で答えた分（JSON の [{itemId, action, at}]）を渡し、空にする */
         @JavascriptInterface
         fun takeAnswers(): String = Notices.takeAnswers(this@MainActivity)
@@ -361,6 +393,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private inner class Client : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String) {
+            deliverView()
+        }
+
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
             assetLoader.shouldInterceptRequest(request.url)
 
@@ -433,7 +469,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
+    companion object {
+        const val EXTRA_VIEW = "openView"
         const val ASSET_HOST = "appassets.androidplatform.net"
         const val START_URL = "https://$ASSET_HOST/assets/www/index.html"
         const val FALLBACK_URL = "file:///android_asset/www/index.html"
