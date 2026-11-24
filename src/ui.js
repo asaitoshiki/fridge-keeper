@@ -1319,30 +1319,39 @@
         <section class="settings-block">
           <h3>AI での入力補助</h3>
           <p class="warn">
-            このアプリは端末内で完結し、データを外へ出しません。
-            AI を有効にすると、入力した食品名が下の接続先へ送られます。
-            既定は無効で、有効にしない限り通信は起きません。
+            AI を有効にすると、入力した食品名とレシートから読めた文字が Anthropic（Claude）へ送られます。
+            在庫の一覧や記録は送りません。既定は無効で、有効にしない限り通信は起きません。
+          </p>
+          <p class="hint">
+            使うのは、見本帳に無い食品名の分類と、レシートの読み取りだけです。期限の目安は AI に決めさせません。
+            料金はご自分の Anthropic のアカウント（Claude Console）にかかります。
           </p>
           <label class="check-row">
             <input type="checkbox" id="ai-enabled" ${ai.enabled ? 'checked' : ''}>
             <span>AI を有効にする</span>
           </label>
           <div class="field">
-            <label for="ai-endpoint">接続先</label>
-            <input id="ai-endpoint" type="url" placeholder="https://..." value="${esc(ai.endpoint)}" autocomplete="off">
+            <label for="ai-key">APIキー <span class="optional">Claude Console で作ったもの</span></label>
+            <input id="ai-key" type="password" value="${esc(ai.apiKey)}" placeholder="sk-ant-..." autocomplete="off">
           </div>
           <div class="field">
             <label for="ai-model">モデル</label>
-            <input id="ai-model" type="text" value="${esc(ai.model)}" autocomplete="off">
+            <select id="ai-model">
+              ${Object.entries(AiAssist.MODELS).map(([id, m]) => `<option value="${id}" ${ai.model === id ? 'selected' : ''}>${m.label}</option>`).join('')}
+            </select>
           </div>
           <div class="field">
-            <label for="ai-key">APIキー</label>
-            <input id="ai-key" type="password" value="${esc(ai.apiKey)}" autocomplete="off">
+            <label for="ai-limit">ひと月の上限 <span class="optional">円・この端末で数えた概算</span></label>
+            <input id="ai-limit" type="number" inputmode="numeric" min="0" step="100" value="${ai.monthlyLimitYen}">
           </div>
-          <p class="hint">通信部分はまだ実装されていないため、有効にしても動作しません。</p>
+          <p class="hint">今月の利用: 約${AiAssist.loadUsage().yen < 10 ? AiAssist.loadUsage().yen.toFixed(2) : Math.round(AiAssist.loadUsage().yen)}円（${AiAssist.loadUsage().calls}回）。上限に達すると、その月は AI を呼びません。
+            念のため、Claude Console の側でも使える金額の上限を決めておいてください。</p>
+          <div class="settings-actions">
+            <button class="btn btn-primary" type="button" id="save-settings">AI の設定を保存する</button>
+            <button class="btn btn-ghost" type="button" id="ai-test">つながるか試す</button>
+          </div>
+          <p class="hint" id="ai-test-result" hidden></p>
         </section>
-
-        <button class="btn btn-primary" type="button" id="save-settings">AI の設定を保存する</button>
 
         <section class="settings-block">
           <h3>免責事項</h3>
@@ -1614,13 +1623,26 @@
       saveSettings.addEventListener('click', () => {
         AiAssist.saveSettings({
           enabled: root.querySelector('#ai-enabled').checked,
-          endpoint: root.querySelector('#ai-endpoint').value.trim(),
-          model: root.querySelector('#ai-model').value.trim(),
-          apiKey: root.querySelector('#ai-key').value,
+          apiKey: root.querySelector('#ai-key').value.trim(),
+          model: root.querySelector('#ai-model').value,
+          monthlyLimitYen: Math.max(0, Number(root.querySelector('#ai-limit').value) || 0),
         });
         saveState(state);
         render();
         toast('設定を保存しました');
+      });
+    }
+
+    /* 保存した設定で一回だけ聞いてみる。料金は1円にも届かない */
+    const aiTest = root.querySelector('#ai-test');
+    if (aiTest) {
+      aiTest.addEventListener('click', () => {
+        const out = root.querySelector('#ai-test-result');
+        out.hidden = false;
+        out.textContent = '試しています…（保存した設定で試します）';
+        AiAssist.guessCategory('国産若鶏のから揚げ')
+          .then((category) => { out.textContent = `つながりました。「国産若鶏のから揚げ」→ ${CATEGORY_LABELS[category] || '分からない'}`; })
+          .catch((error) => { out.textContent = error instanceof AiAssist.AiError ? error.message : 'うまくいきませんでした'; });
       });
     }
 
@@ -2123,6 +2145,16 @@
     if (added.condition === 'CUT') added.openedAt = todayIso();
     saveState(state);
     render();
+    /* 見本帳にも手がかりの語にも無い名前だけ、AI に分類を聞く。答えが来る前に直されていたら触らない */
+    if (!preset && added.category === 'OTHER' && AiAssist.isReady()) {
+      AiAssist.guessCategory(name).then((category) => {
+        const item = findItem(added.id);
+        if (!item || item.category !== 'OTHER' || !category || category === 'OTHER') return;
+        item.category = category;
+        saveState(state);
+        render();
+      }).catch(() => { /* AI が使えなくても、分類は「その他」のまま動く */ });
+    }
     if (!(opts && opts.silent)) toast(`${name} を「買ってきたもの」に入れました`);
   }
 
@@ -3524,9 +3556,24 @@
       window.fridgeReceiptResult = null;
       if (status === 'CANCELED') return;
       if (status !== 'OK') { toast('レシートを読めませんでした。もう一度試すか、手で入れてください'); return; }
-      const found = Receipt.parse(JSON.parse(json), FOOD_PRESETS);
-      if (found.length === 0) { toast('レシートから食材を見つけられませんでした。明るい所でまっすぐ撮ってみてください'); return; }
-      openReceipt(found);
+      const lines = JSON.parse(json);
+      const byRules = () => {
+        const found = Receipt.parse(lines, FOOD_PRESETS);
+        if (found.length === 0) { toast('レシートから食材を見つけられませんでした。明るい所でまっすぐ撮ってみてください'); return; }
+        openReceipt(found);
+      };
+      if (!AiAssist.isReady()) { byRules(); return; }
+      /* AI は半角カナや略した書き方に強い。拾ったものは食べ物と答えたものなので、初めから印を付けておく */
+      toast('AI でレシートを読んでいます…');
+      AiAssist.readReceipt(Receipt.toRows(lines))
+        .then((items) => {
+          if (items.length === 0) { byRules(); return; }
+          openReceipt(items.map((item) => ({ name: item.name, raw: item.name, quantity: item.quantity, known: true })));
+        })
+        .catch((error) => {
+          toast(`${error instanceof AiAssist.AiError ? error.message : 'AI で読めませんでした'}。AI なしで読みます`);
+          byRules();
+        });
     };
     androidBridge().scanReceipt();
   }
