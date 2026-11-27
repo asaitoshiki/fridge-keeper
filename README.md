@@ -1,97 +1,126 @@
 # 冷蔵庫の地図
 
 食品ロスを減らすアプリ。賞味期限・消費期限を管理し、**腐らせる前に気づかせる**ことを目的とする。
-サーバー通信・外部 API・AI を一切使わず、データは端末内だけに保存する。
+「在庫を管理する」アプリではなく「食材を腐らせない・捨てない」アプリ。入力の手間を増やさないことを何より大事にしている。
 
-- 仕様書: [`docs/fridge-app-spec.md`](docs/fridge-app-spec.md)
-- 開発方針: [`CLAUDE.md`](CLAUDE.md)
+データは端末の中（ブラウザの localStorage）だけに保存し、サーバーは持たない。
+外と通信するのは次の三つだけで、どれも食材や記録は送らない（理由は [`DECISIONS.md`](DECISIONS.md)）。
 
-## 中身
+- 天気予報の気温（Open-Meteo）… 同意した人だけ。約10kmに丸めた位置だけを送る
+- 開発者からのお知らせ（GitHub の `announcements.json` を読むだけ）… 設定で止められる
+- AI での入力補助（Anthropic の Claude API）… 既定は無効。自分の APIキーを入れた人だけ
 
-| | 場所 | 状態 |
-|---|---|---|
-| Web 版 | リポジトリ直下（`index.html` ほか） | 動作中。仕様の試作台として使う |
-| Android 版 | `android/` | 移植中。CI が debug APK をビルドする |
+## 管理ファイル（複数の AI で開発するための共通の置き場所）
 
-### APK の受け取り方（Android Studio は不要）
+| ファイル | 中身 |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | すべての AI と人に共通の開発ルール・コーディング規約・試験の回し方・プロジェクト固有の決まり |
+| [`CLAUDE.md`](CLAUDE.md) | Claude Code 向けの入口（AGENTS.md を読むよう案内するだけ） |
+| [`PROGRESS.md`](PROGRESS.md) | 現在の開発状況・実装済み・未実装・既知の問題 |
+| [`TODO.md`](TODO.md) | これからの作業と優先順位 |
+| [`DECISIONS.md`](DECISIONS.md) | 設計上の決定・理由・採用しなかった案 |
+| [`docs/fridge-app-spec.md`](docs/fridge-app-spec.md) | 最初の仕様書（v1.0 の依頼書） |
 
-1. [Actions](../../actions/workflows/android.yml) を開く
-2. 一番上の成功した実行（緑のチェック）をクリック
-3. 下の **Artifacts** から `fridge-keeper-debug-apk` をダウンロード
-4. zip を展開して、中の `.apk` をスマホに移して開く
-   - 「提供元不明のアプリ」の許可を求められたら許可する
+## 利用技術
 
-## 進め方
+| 部分 | 技術 |
+|---|---|
+| 本体（Web） | 素の HTML / CSS / JavaScript。ビルド工程なし・依存パッケージなし・ES モジュールなし（`file://` でそのまま開ける） |
+| 保存 | ブラウザの localStorage（`fridgekeeper.state.v2` ほか） |
+| バーコード（ブラウザ） | BarcodeDetector、無い環境では同梱の ZXing（`src/vendor/`） |
+| Android アプリ | Kotlin。Web 版をそのまま WebView で動かす（`android-web/`）。Gradle・Android SDK 35・minSdk 24 |
+| Android の端末機能 | 通知（AlarmManager）、Google のコードスキャナー（バーコード）、Google の書類スキャナー＋ML Kit 日本語文字認識（レシート） |
+| ビルド・配布 | GitHub Actions の「Android (web)」を手動で回すと、リリース `apk-latest` に APK が置かれる |
+| 試験 | Playwright（`tests/` の中だけで使う） |
+| AI（任意） | Anthropic Claude API（既定は Claude Haiku 5.5）。ブラウザから fetch で直接呼ぶ |
 
-**まず Web 版で完成させ、そのあと Android へ移植する。**
+`android/` には以前の Kotlin（Jetpack Compose）での作り直しがあるが、いまは更新を止めている（別のアプリとして入る）。
 
-Web だけで完結できない機能が仕様書に2つある（後述）。それらは Android 移植時に実装する。
-ドメインロジック（`src/domain.js`）は UI と永続化から独立させてあるので、Kotlin へはほぼ1対1で移せる。
+## 環境構築と実行
 
-### Web 版で実現できないもの
+### Web 版を動かす
 
-| 仕様 | 理由 | 代替 |
-|---|---|---|
-| 6.7 ホーム画面ウィジェット | Web には仕組みがない | Android 移植時に Glance で実装 |
-| 6.3 毎朝8時のまとめ通知 | Web Push はサーバー送信が前提で、「サーバー通信を一切行わない」制約と両立しない | **アプリを開いた瞬間に最上部へサマリーを出す**（仕様書8.3の「アプリを開けば必ず全体の状態が把握できる」を強化する形） |
-| 6.2(b) バーコードスキャン | `BarcodeDetector` は Chrome (Android) のみ | 後のフェーズで対応環境のみ有効化 |
-
-## 動かす
-
-ビルド不要。依存パッケージもない。
+ビルドも依存パッケージのインストールも要らない。
 
 ```sh
-# そのまま開く
-open index.html
+# そのままブラウザで開く
+open index.html            # Windows は start index.html、Linux は xdg-open index.html
 
-# または簡易サーバー経由で
+# または簡易サーバー経由で（http://localhost:8000）
 python3 -m http.server 8000
 ```
+
+### 試験を回す
+
+Node.js（18 以上）が要る。詳しくは [`AGENTS.md`](AGENTS.md) の「試験」。
+
+```sh
+cd tests
+npm install
+npx playwright install chromium
+node run-all.mjs
+```
+
+### Android のアプリ（APK）を作る
+
+手元に Android Studio が無くても作れる。
+
+1. GitHub の [Actions](../../actions/workflows/android-web.yml) で「Android (web)」を開き、「Run workflow」を押す
+2. 終わると、リリース `apk-latest` に `fridge-map.apk` が置かれる
+   （ <https://github.com/asaitoshiki/fridge-keeper/releases/download/apk-latest/fridge-map.apk> ）
+3. スマホで開いて入れる。「提供元不明のアプリ」の許可を求められたら許可する
+
+署名の鍵は固定してあるので、新しい APK を上から入れてもデータは残る。
+
+手元でビルドするなら（Android SDK と JDK 17 が要る）:
+
+```sh
+cd android-web
+./gradlew assembleDebug    # app/build/outputs/apk/debug/ に APK ができる
+```
+
+### 開発者からのお知らせを送る
+
+`announcements.json` に書いて main に入れる（Pull Request をマージする）と、使っている人に届く。書き方は [`AGENTS.md`](AGENTS.md) の「開発者からのお知らせ」。
 
 ## ファイル構成
 
 ```
-index.html      標準の HTML（ローカル・GitHub Pages 用）
-artifact.html   Artifact 公開用の同内容シェル
-app.css         配色トークンと組版
+index.html            画面の入口（スクリプトの読み込み順もここで決まる）
+artifact.html         Artifact で公開するための同じ内容の入れ物
+app.css               配色と組版（末尾の「やわらかい見た目」がいまの見た目）
+manifest.webmanifest  ホーム画面に置くための情報
+announcements.json    開発者からのお知らせ
+icons/                アイコン
 src/
-  domain.js     期限計算。UI と永続化から独立（Kotlin 移植時の対応物）
-  store.js      localStorage への永続化、収納レイアウトの定義と移行
-  fridge.js     冷蔵庫の図、ドラッグ＆ドロップ、配置の編集
-  ui.js         画面全体の組み立て、期限順リスト、入力ダイアログ
-docs/           仕様書
+  crash.js            予期しないエラーを画面に出す（いちばん先に読む）
+  domain.js           期限・目安の計算、温度、カテゴリ。DOM と保存に触れない（Kotlin へ移すときの対応物）
+  foods.js            よく使う食品の見本帳（約220品）
+  receipt.js          レシートの文字から食材の候補を拾う（DOM に触れない）
+  shelflife.js        食品ごとの日持ちの表
+  scan.js             バーコードと期限の印字の読み取り
+  ai.js               AI での入力補助（Claude API）
+  store.js            保存・読み込み・古いデータの読み替え・冷蔵庫の形
+  fridge.js           冷蔵庫の図、ドラッグで入れる、形の編集
+  ui.js               画面全体（一覧・シート・お知らせ・設定など）
+  vendor/             同梱のライブラリ（ZXing）
+android-web/          Web 版を包んだ Android アプリ（いま配っているもの）
+android/              以前の Kotlin 版（更新を止めている）
+tests/                試験（Playwright）
+docs/                 仕様書
+.github/workflows/    APK を作る GitHub Actions（どちらも手動で回す）
 ```
 
-## 実装状況
-
-| | 内容 | 状態 |
-|---|---|---|
-| 6.1 | 期限順ホーム画面・緊急度の色分け・保管場所フィルタ | ✅ |
-| 7章 | 冷蔵庫の図（ドラッグで収納・引き出しの自由な編集）※v1.1予定だったものを前倒し | ✅ |
-| 6.2(a) | 手動での登録／編集／削除 | ✅ |
-| 4章 | 推定期限の導出（`expiryDate ?: 登録日 + プリセット日数`）と「目安」バッジ | ✅ |
-| 8.2 | 消費期限の強い警告表示、断定表現の排除 | ✅ |
-| 8.3 | 開いた瞬間のサマリー（通知の代替） | ✅ |
-| 6.4 | スワイプでの消費／廃棄・取り消し | ✅ |
-| 6.5 | 食品ロスなし継続日数（ストリーク） | ✅ |
-| — | 買い物リストと、OS の共有シート経由の家族共有 | ✅ |
-| — | AI の接続口（既定は無効。通信部分は未実装） | 差し込み口のみ |
-| 6.2(b) | バーコード／カメラでの期限読み取り | 未着手（Android のみ実現可） |
-| 6.2(c) | よく買うものテンプレート | 未着手 |
-| 6.3 | 当日・前日のリマインド | 未着手（Android のみ実現可） |
-| 6.8 | エクスポート／インポート | 未着手 |
-
-### スワイプ操作
+## 操作のめやす
 
 | 操作 | 結果 |
 |---|---|
-| 右へ引く | 食べた（1つ減らす） |
+| 期限順の一覧で右へ引く | 食べた（1つ減らす） |
 | 左へ引く | 食べきった（在庫から消す） |
-| 左へ引き切る | 捨てた（継続日数が0に戻る） |
+| 左へ引き切る | 捨てた（食品ロスなしの日数が0に戻る） |
+| 冷蔵庫の図で食材を押す | 食材のシート（食べた・捨てた・期限・状態・編集） |
 
-捨てるのは取り消しの効かない記録なので、浅い操作では起きないようにしてある。
-どの操作も直後に取り消せる。
-| 8.1 | 初回起動時の免責同意画面 | 未着手（現状は画面下部に常時表示） |
+どの操作も直後に取り消せ、あとからでも「レポート → 履歴」で取り消せる。
 
 ## 免責
 
