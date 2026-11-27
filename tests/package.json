@@ -1,0 +1,12 @@
+{
+  "name": "fridge-keeper-tests",
+  "private": true,
+  "description": "冷蔵庫の地図の試験（ブラウザで画面を動かして確かめる）。アプリ本体は依存パッケージを持たない。",
+  "type": "module",
+  "scripts": {
+    "test": "node run-all.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
